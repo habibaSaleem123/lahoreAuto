@@ -326,7 +326,8 @@ exports.getAllInvoices = async (req, res) => {
     const payer = req.body.payer_name;
     const date = req.body.payment_date;
     const invoice_number = req.params.invoice_number;
-    
+  
+    const file = req.file; // ✅ FIX: capture uploaded file here
   
     console.log('📥 Received payment data:', { invoice_number, bank, payer, date });
     console.log('📎 Uploaded file:', file);

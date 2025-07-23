@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
-
+const path = require('path');
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
@@ -17,7 +17,7 @@ app.use('/api', customerRoutes);  // /api/customers
 app.use('/api', gdRoutes);        // /api/gd-list etc.
 app.use('/api/stock', stockRoutes);
 app.use('/api/sales', salesRoutes);
-
+app.use('/receipts', express.static(path.join(__dirname, 'receipts')));
 // Catch-all
 app.use((req, res) => {
   res.status(404).json({ error: 'API route not found' });

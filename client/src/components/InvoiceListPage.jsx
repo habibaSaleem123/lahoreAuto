@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { Table, Button, Form, Row, Col, Container, Modal } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
+import { ToastContainer, toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 
 const InvoiceListPage = () => {
   const [invoices, setInvoices] = useState([]);
@@ -86,14 +88,20 @@ const InvoiceListPage = () => {
     formData.append('payment_date', paymentForm.payment_date);
     if (paymentForm.receipt) formData.append('receipt', paymentForm.receipt);
 
-    await axios.post(`/api/sales/invoice/${selectedToPay}/mark-paid`, formData);
-    setShowPayModal(false);
-    fetchInvoices();
+    try {
+      await axios.post(`/api/sales/invoice/${selectedToPay}/mark-paid`, formData);
+      toast.success('✅ Invoice marked as paid!');
+      setShowPayModal(false);
+      fetchInvoices();
+    } catch (err) {
+      toast.error('❌ Failed to mark as paid');
+    }
   };
 
   return (
     <Container className="my-4">
       <h4>📄 Invoice Log</h4>
+      <ToastContainer position="top-center" />
 
       <Row className="mb-3">
         <Col md={3}><Form.Control placeholder="Search customer or invoice" value={search} onChange={e => setSearch(e.target.value)} /></Col>
@@ -165,7 +173,17 @@ const InvoiceListPage = () => {
                 {!inv.is_paid && (
                   <Button size="sm" variant="success" onClick={() => openPayModal(inv)}>Mark Paid</Button>
                 )}{' '}
-                <Button size="sm" variant="outline-danger" onClick={() => handleDelete(inv.invoice_number)} disabled={inv.is_paid}>🗑️</Button>
+                <Button size="sm" variant="outline-danger" onClick={() => handleDelete(inv.invoice_number)} disabled={inv.is_paid}>🗑️</Button>{' '}
+                {inv.paid_receipt_path && (
+                  <a
+                    href={`http://localhost:5000/${inv.paid_receipt_path}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-sm btn-outline-info ms-1"
+                  >
+                    📄 View Receipt
+                  </a>
+                )}
               </td>
             </tr>
           ))}
