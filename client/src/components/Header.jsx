@@ -14,6 +14,7 @@ const Header = () => {
         <Link to="/stock-summary" className="nav-link">StockSUMMARY</Link>
         <Link to="/sales" className="nav-link">Sales </Link> {/* ✅ Add */}
         <Link to="/invoices" className="nav-link">Invoices</Link> {/* ✅ Add */}
+        <Link to="/returns" className="nav-link">Returns</Link> {/* ✅ Add */}
         
      
       </div>

@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Container, Table, Form } from 'react-bootstrap';
+import { Container, Table, Form, Button } from 'react-bootstrap';
+
 
 const StockSummaryPage = () => {
   const [inventory, setInventory] = useState([]);
   const [viewMode, setViewMode] = useState('batch'); // 'batch' or 'grouped'
+  const [reloadToggle, setReloadToggle] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
@@ -17,7 +19,7 @@ const StockSummaryPage = () => {
       .get(endpoint)
       .then((res) => setInventory(res.data))
       .catch((err) => console.error('Error fetching stock summary:', err));
-  }, [viewMode]);
+  }, [viewMode, reloadToggle]);
 
   const filteredInventory = inventory.filter((item) => {
     const search = searchTerm.toLowerCase();
@@ -63,6 +65,15 @@ const StockSummaryPage = () => {
         value={searchTerm}
         onChange={(e) => setSearchTerm(e.target.value)}
       />
+
+      <Button
+        variant="outline-secondary"
+        size="sm"
+        className="mb-2"
+        onClick={() => setReloadToggle(r => !r)}
+      >
+        🔄 Refresh Stock
+      </Button>
 
       <Table bordered hover responsive className="stock-summary-table">
         <thead className="table-light">

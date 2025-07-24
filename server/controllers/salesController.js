@@ -368,4 +368,187 @@ exports.getAllInvoices = async (req, res) => {
       res.status(500).json({ error: 'Failed to mark invoice as paid' });
     }
   };
+
+  // Returns management
+  
+  // GET /api/sales/invoice/:invoice_number/returns
+exports.getReturnsByInvoice = async (req, res) => {
+  const conn = await db.getConnection();
+  try {
+    const { invoice_number } = req.params;
+    // find invoice id
+    const [[inv]] = await conn.query(
+      `SELECT id FROM sales_invoices WHERE invoice_number = ?`,
+      [invoice_number]
+    );
+    if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+
+    // fetch return rows
+    const [rows] = await conn.query(
+      `SELECT * FROM sales_returns WHERE invoice_id = ? ORDER BY created_at DESC`,
+      [inv.id]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    conn.release();
+  }
+};
+
+// POST /api/sales/returns
+exports.createReturn = async (req, res) => {
+  const conn = await db.getConnection();
+  await conn.beginTransaction();
+  try {
+    const { invoice_number, items } = req.body;
+    // 1️⃣ load invoice + its DB id + gd_entry_id
+    const [[invoice]] = await conn.query(
+      `SELECT id, gd_entry_id, customer_id FROM sales_invoices WHERE invoice_number = ?`,
+      [invoice_number]
+    );
+    if (!invoice) throw new Error('Invoice not found');
+    const { id: invoiceId, gd_entry_id: gdEntryId, customer_id } = invoice;
+
+    // 2️⃣ generate a return_number
+    const returnNumber = uuidv4().slice(0,8).toUpperCase();
+
+    let totalRefund = 0, totalTaxRev = 0;
+    // 3️⃣ process each returned item
+    for (const it of items) {
+      const { item_id, quantity_returned, reason, restock } = it;
+
+      // a) fetch original sale data
+      const [[sold]] = await conn.query(
+        `SELECT quantity_sold, sale_rate, retail_price
+         FROM sales_invoice_items
+         WHERE invoice_id = ? AND item_id = ?`,
+        [invoiceId, item_id]
+      );
+      if (!sold) throw new Error(`Item ${item_id} not on invoice`);
+      // b) total previously returned for this item
+      const [[prev]] = await conn.query(
+        `SELECT COALESCE(SUM(quantity_returned),0) AS prev
+         FROM sales_returns
+         WHERE invoice_id = ? AND item_id = ?`,
+        [invoiceId, item_id]
+      );
+      if (prev.prev + quantity_returned > sold.quantity_sold) {
+        throw new Error(`Cannot return more than sold (${sold.quantity_sold - prev.prev} left)`);
+      }
+
+      // c) compute amounts
+      const refundAmt = quantity_returned * parseFloat(sold.sale_rate);
+      const taxRev   = quantity_returned * parseFloat(sold.retail_price) * 0.18;
+
+      // d) insert into sales_returns
+      await conn.query(
+        `INSERT INTO sales_returns
+         (return_number, invoice_id, item_id, quantity_returned, reason, restock, refund_amount, tax_reversal)
+         VALUES (?,?,?,?,?,?,?,?)`,
+        [
+          returnNumber, invoiceId, item_id,
+          quantity_returned, reason, restock ? 1:0,
+          refundAmt, taxRev
+        ]
+      );
+
+      totalRefund += refundAmt;
+      totalTaxRev  += taxRev;
+
+      // e) if restock, add back to inventory + log
+      if (restock) {
+        // re‑use original cost: earliest batch cost or, e.g., first batch:
+        const [[batch]] = await conn.query(
+          `SELECT cost FROM inventory
+           WHERE item_id = ? AND gd_entry_id = ?
+           ORDER BY stocked_at ASC LIMIT 1`,
+          [item_id, gdEntryId]
+        );
+        const costPerUnit = batch?.cost || 0;
+        // 1) insert new inventory record
+        const [invIns] = await conn.query(
+          `INSERT INTO inventory
+           (gd_entry_id, item_id, quantity_remaining, cost, stocked_by, stocked_at)
+           VALUES (?,?,?,?,?,NOW())`,
+          [gdEntryId, item_id, quantity_returned, costPerUnit, 'Return']
+        );
+        // 2) log it
+        await conn.query(
+          `INSERT INTO inventory_log 
+           (item_id, gd_entry_id, action, quantity_changed, resulting_quantity, action_by)
+           VALUES (?,?,?,?,?,
+             ?)`,
+          [item_id, gdEntryId, 'restock', quantity_returned, quantity_returned, 'Return']
+        );
+      }
+    }
+
+    // 4️⃣ adjust customer balance & invoice totals
+    await conn.query(
+      `UPDATE customers
+       SET balance = balance + ?
+       WHERE id = ?`,
+      [totalRefund, customer_id]
+    );
+    await conn.query(
+      `UPDATE sales_invoices
+       SET gross_total      = gross_total - ?,
+           sales_tax        = sales_tax   - ?,
+           gross_profit     = gross_profit - ?
+       WHERE id = ?`,
+      [totalRefund, totalTaxRev, totalRefund - totalTaxRev, invoiceId]
+    );
+
+    await conn.commit();
+    res.json({ message: 'Return processed', return_number: returnNumber });
+  } catch (err) {
+    await conn.rollback();
+    console.error(err);
+    res.status(400).json({ error: err.message });
+  } finally {
+    conn.release();
+  }
+};
+
+
+// returns up to 10 invoices that still have >0 units left to return
+exports.getInvoiceSuggestions = async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim();
+    if (!q) return res.json([]);
+
+    const sql = `
+      SELECT t.invoice_number, t.customer_name
+      FROM (
+        SELECT 
+          i.id,
+          i.invoice_number,
+          c.name AS customer_name,
+          SUM(sii.quantity_sold)               AS total_sold,
+          COALESCE(SUM(r.quantity_returned),0)  AS total_returned
+        FROM sales_invoices i
+        JOIN customers c            ON c.id = i.customer_id
+        JOIN sales_invoice_items sii ON sii.invoice_id = i.id
+        LEFT JOIN sales_returns r   ON r.invoice_id = i.id
+        GROUP BY i.id
+      ) AS t
+      WHERE (t.invoice_number LIKE ? OR t.customer_name LIKE ?)
+        AND (t.total_sold - t.total_returned) > 0
+      ORDER BY t.id DESC
+      LIMIT 10
+    `;
+    const like = `%${q}%`;
+    const [rows] = await db.query(sql, [like, like]);
+
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch suggestions' });
+  }
+};
+   
+
+
   
