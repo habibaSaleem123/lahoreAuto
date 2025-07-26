@@ -13,6 +13,7 @@ import StockSummaryPage from './components/StockSummaryPage';
 import InvoiceView from './components/InvoiceView'; 
 import InvoiceListPage from './components/InvoiceListPage'; 
 import ReturnPage from './components/ReturnPage';
+import CustomerListPage from './components/CustomerListPage';
 
 function App() {
   return (
@@ -29,7 +30,7 @@ function App() {
           <Route path="/invoice/:invoiceId" element={<InvoiceView />} />
           <Route path="/invoices" element={<InvoiceListPage />} />
           <Route path="/returns" element={<ReturnPage />} />
-
+          <Route path="/customers" element={<CustomerListPage />} />
 
           <Route path="/" element={<GdEntryForm />} />
         </Routes>

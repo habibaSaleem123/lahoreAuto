@@ -15,7 +15,7 @@ const Header = () => {
         <Link to="/sales" className="nav-link">Sales </Link> {/* ✅ Add */}
         <Link to="/invoices" className="nav-link">Invoices</Link> {/* ✅ Add */}
         <Link to="/returns" className="nav-link">Returns</Link> {/* ✅ Add */}
-        
+        <Link to="/customers" className="nav-link">Customers</Link> {/* ✅ Add */}
      
       </div>
     </nav>
