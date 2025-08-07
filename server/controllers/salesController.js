@@ -3,6 +3,8 @@ const { v4: uuidv4 } = require('uuid');
 const fs = require('fs');
 const path = require('path');
 const ExcelJS = require('exceljs');
+
+
 exports.createInvoice = async (req, res) => {
   const {
     customer_id,
@@ -16,9 +18,8 @@ exports.createInvoice = async (req, res) => {
   await conn.beginTransaction();
 
   try {
-    const invoiceId = uuidv4().slice(0, 8).toUpperCase(); // e.g. 'INV-XXXX'
+    const invoiceId = uuidv4().slice(0, 8).toUpperCase();
 
-    // 1️⃣ Fetch customer details
     const [[customer]] = await conn.query(`SELECT * FROM customers WHERE id = ?`, [customer_id]);
     if (!customer) throw new Error('Customer not found');
 
@@ -26,7 +27,6 @@ exports.createInvoice = async (req, res) => {
     let total_sales_tax = 0;
     let total_cost = 0;
 
-    // 2️⃣ Create invoice header (with zeroed totals initially)
     const [invoiceInsert] = await conn.query(`
       INSERT INTO sales_invoices (
         invoice_number, customer_id, gd_entry_id,
@@ -40,7 +40,6 @@ exports.createInvoice = async (req, res) => {
     );
     const invoice_db_id = invoiceInsert.insertId;
 
-    // 3️⃣ Loop through each invoice item
     for (const item of items) {
       const {
         item_id,
@@ -54,29 +53,17 @@ exports.createInvoice = async (req, res) => {
       gross_total += gross_line_total;
       total_sales_tax += quantity * retail_price * 0.18;
 
-      await conn.query(`
-        INSERT INTO sales_invoice_items (
-          invoice_id, item_id, gd_entry_id,
-          quantity_sold, retail_price, sale_rate,
-          unit, gross_line_total
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          invoice_db_id, item_id, gd_entry_id,
-          quantity, retail_price, sale_rate,
-          unit, gross_line_total
-        ]
-      );
-
-      // 4️⃣ Deduct inventory using FIFO
+      // FIFO cost deduction
       let qtyToDeduct = quantity;
+      let totalItemCost = 0;
       const [batches] = await conn.query(`
         SELECT * FROM inventory
         WHERE item_id = ? AND gd_entry_id = ?
-        ORDER BY stocked_at ASC`, [item_id, gd_entry_id]);
+        ORDER BY stocked_at ASC`,
+        [item_id, gd_entry_id]);
 
       for (const batch of batches) {
         if (qtyToDeduct <= 0) break;
-
         const deduct = Math.min(qtyToDeduct, batch.quantity_remaining);
         const remaining = batch.quantity_remaining - deduct;
 
@@ -85,50 +72,61 @@ exports.createInvoice = async (req, res) => {
         await conn.query(`
           INSERT INTO inventory_log (item_id, gd_entry_id, action, quantity_changed, resulting_quantity, action_by)
           VALUES (?, ?, 'sale', ?, ?, ?)`,
-          [item_id, gd_entry_id, -deduct, remaining, customer.name]
-        );
+          [item_id, gd_entry_id, -deduct, remaining, customer.name]);
 
-        total_cost += deduct * batch.cost;
+        totalItemCost += deduct * batch.cost;
         qtyToDeduct -= deduct;
 
         if (remaining === 0) {
           await conn.query(`DELETE FROM inventory WHERE id = ?`, [batch.id]);
         }
       }
+
+      const itemCostPerUnit = quantity > 0 ? totalItemCost / quantity : 0;
+      total_cost += totalItemCost;
+
+      // Insert item with cost and mrp
+      await conn.query(`
+        INSERT INTO sales_invoice_items (
+          invoice_id, item_id, gd_entry_id,
+          quantity_sold, retail_price, sale_rate,
+          cost, mrp, unit, gross_line_total
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          invoice_db_id, item_id, gd_entry_id,
+          quantity, retail_price, sale_rate,
+          itemCostPerUnit, retail_price,
+          unit, gross_line_total
+        ]
+      );
     }
 
-    // 5️⃣ Check if GD has any inventory left
-    const [[{ remaining }]] = await conn.query(`
-      SELECT COUNT(*) AS remaining FROM inventory WHERE gd_entry_id = ?`, [gd_entry_id]);
+    const [[{ remaining }]] = await conn.query(
+      `SELECT COUNT(*) AS remaining FROM inventory WHERE gd_entry_id = ?`, [gd_entry_id]);
 
     if (remaining === 0) {
       await conn.query(`DELETE FROM gd_entries WHERE id = ?`, [gd_entry_id]);
-      await conn.query(`
-        INSERT INTO gd_deletion_log (gd_entry_id, deleted_by)
-        VALUES (?, ?)`, [gd_entry_id, customer.name]);
+      await conn.query(`INSERT INTO gd_deletion_log (gd_entry_id, deleted_by) VALUES (?, ?)`,
+        [gd_entry_id, customer.name]);
     }
 
-    // 6️⃣ Get income tax from gd_items
     const [[taxRow]] = await conn.query(`
       SELECT SUM(income_tax) AS total_income_tax
       FROM gd_items
-      WHERE gd_entry_id = ?
-    `, [gd_entry_id]);
-    const income_tax_paid = taxRow?.total_income_tax || 0;
+      WHERE gd_entry_id = ?`,
+      [gd_entry_id]);
 
+    const income_tax_paid = taxRow?.total_income_tax || 0;
     const withholding_tax = gross_total * parseFloat(withholding_rate || 0.01);
     const gross_profit = gross_total - total_cost;
 
-    // 7️⃣ Update final totals in invoice
     await conn.query(`
       UPDATE sales_invoices
       SET gross_total = ?, sales_tax = ?, withholding_tax = ?,
           gross_profit = ?, income_tax_paid = ?
       WHERE id = ?`,
-      [gross_total, total_sales_tax, withholding_tax, gross_profit, income_tax_paid, invoice_db_id]
-    );
+      [gross_total, total_sales_tax, withholding_tax, gross_profit, income_tax_paid, invoice_db_id]);
 
-    // Optional: cleanup function
     await conn.query(`CALL cleanup_gd_if_empty(?, ?)`, [gd_entry_id, customer.name]);
 
     await conn.commit();
@@ -141,6 +139,7 @@ exports.createInvoice = async (req, res) => {
     conn.release();
   }
 };
+
 
 // 🔍 Get invoice for printing/viewing
 exports.getInvoiceById = async (req, res) => {
@@ -243,22 +242,34 @@ exports.getAllInvoices = async (req, res) => {
     try {
       const { invoice_number } = req.params;
   
-      const [[invoice]] = await conn.query(`SELECT id FROM sales_invoices WHERE invoice_number = ?`, [invoice_number]);
+      // Get invoice ID
+      const [[invoice]] = await conn.query(
+        `SELECT id FROM sales_invoices WHERE invoice_number = ?`,
+        [invoice_number]
+      );
       if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
   
+      // Delete returns first to satisfy FK constraints
+      await conn.query(`DELETE FROM sales_returns WHERE invoice_id = ?`, [invoice.id]);
+  
+      // Then delete invoice items
       await conn.query(`DELETE FROM sales_invoice_items WHERE invoice_id = ?`, [invoice.id]);
+  
+      // Then delete the invoice
       await conn.query(`DELETE FROM sales_invoices WHERE id = ?`, [invoice.id]);
   
       await conn.commit();
-      res.json({ message: 'Invoice deleted' });
+      res.json({ message: 'Invoice deleted successfully' });
     } catch (err) {
       await conn.rollback();
-      console.error(err);
+      console.error('❌ Error deleting invoice:', err);
       res.status(500).json({ error: 'Failed to delete invoice' });
     } finally {
       conn.release();
     }
   };
+  
+  
   
   
   exports.exportInvoicesToFBR = async (req, res) => {
@@ -399,119 +410,319 @@ exports.getReturnsByInvoice = async (req, res) => {
 
 // POST /api/sales/returns
 exports.createReturn = async (req, res) => {
+  const {
+    invoice_number,
+    items,
+    refund_method // 'cash' or 'withholding'
+  } = req.body;
+
   const conn = await db.getConnection();
-  await conn.beginTransaction();
   try {
-    const { invoice_number, items } = req.body;
-    // 1️⃣ load invoice + its DB id + gd_entry_id
+    await conn.beginTransaction();
+
     const [[invoice]] = await conn.query(
-      `SELECT id, gd_entry_id, customer_id FROM sales_invoices WHERE invoice_number = ?`,
+      `SELECT id, customer_id FROM sales_invoices WHERE invoice_number = ?`,
       [invoice_number]
     );
-    if (!invoice) throw new Error('Invoice not found');
-    const { id: invoiceId, gd_entry_id: gdEntryId, customer_id } = invoice;
+    if (!invoice) throw new Error("Invoice not found");
 
-    // 2️⃣ generate a return_number
-    const returnNumber = uuidv4().slice(0,8).toUpperCase();
+    const invoice_id = invoice.id;
+    const customer_id = invoice.customer_id;
 
-    let totalRefund = 0, totalTaxRev = 0;
-    // 3️⃣ process each returned item
-    for (const it of items) {
-      const { item_id, quantity_returned, reason, restock } = it;
+    let totalRefund = 0;
+    let totalTax = 0;
 
-      // a) fetch original sale data
-      const [[sold]] = await conn.query(
-        `SELECT quantity_sold, sale_rate, retail_price
-         FROM sales_invoice_items
-         WHERE invoice_id = ? AND item_id = ?`,
-        [invoiceId, item_id]
+    for (const item of items) {
+      const {
+        invoice_item_id,
+        quantity_returned,
+        reason,
+        restock
+      } = item;
+
+      if (quantity_returned <= 0) continue;
+
+      const [rows] = await conn.query(
+        `SELECT sii.*, gi.hs_code
+         FROM sales_invoice_items sii
+         JOIN gd_items gi ON gi.item_id = sii.item_id
+         WHERE sii.id = ?`,
+        [invoice_item_id]
       );
-      if (!sold) throw new Error(`Item ${item_id} not on invoice`);
-      // b) total previously returned for this item
-      const [[prev]] = await conn.query(
-        `SELECT COALESCE(SUM(quantity_returned),0) AS prev
-         FROM sales_returns
-         WHERE invoice_id = ? AND item_id = ?`,
-        [invoiceId, item_id]
-      );
-      if (prev.prev + quantity_returned > sold.quantity_sold) {
-        throw new Error(`Cannot return more than sold (${sold.quantity_sold - prev.prev} left)`);
+      if (!rows.length) throw new Error("Invoice item not found");
+
+      const original = rows[0];
+      const soldQty = parseFloat(original.quantity_sold);
+      const returnedQty = parseFloat(original.quantity_returned || 0);
+      const toReturn = parseFloat(quantity_returned);
+
+      if (returnedQty + toReturn > soldQty) {
+        throw new Error(`Return exceeds sold quantity. Already returned ${returnedQty}`);
       }
 
-      // c) compute amounts
-      const refundAmt = quantity_returned * parseFloat(sold.sale_rate);
-      const taxRev   = quantity_returned * parseFloat(sold.retail_price) * 0.18;
+      const refundAmount = toReturn * parseFloat(original.sale_rate);
+      const taxReversal = toReturn * parseFloat(original.retail_price) * 0.18;
+      const return_number = `RET-${Math.floor(100000 + Math.random() * 900000)}`;
 
-      // d) insert into sales_returns
       await conn.query(
-        `INSERT INTO sales_returns
-         (return_number, invoice_id, item_id, quantity_returned, reason, restock, refund_amount, tax_reversal)
-         VALUES (?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sales_returns 
+         (return_number, invoice_id, invoice_item_id, item_id, quantity_returned, reason, restock, refund_amount, tax_reversal, refund_method)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          returnNumber, invoiceId, item_id,
-          quantity_returned, reason, restock ? 1:0,
-          refundAmt, taxRev
+          return_number,
+          invoice_id,
+          invoice_item_id,
+          original.item_id,
+          toReturn,
+          reason || 'N/A',
+          restock ? 1 : 0,
+          refundAmount,
+          taxReversal,
+          refund_method
         ]
       );
 
-      totalRefund += refundAmt;
-      totalTaxRev  += taxRev;
+      await conn.query(
+        `UPDATE sales_invoice_items
+         SET quantity_returned = quantity_returned + ?
+         WHERE id = ?`,
+        [toReturn, invoice_item_id]
+      );
 
-      // e) if restock, add back to inventory + log
+      totalRefund += refundAmount;
+      totalTax += taxReversal;
+
       if (restock) {
-        // re‑use original cost: earliest batch cost or, e.g., first batch:
-        const [[batch]] = await conn.query(
-          `SELECT cost FROM inventory
-           WHERE item_id = ? AND gd_entry_id = ?
-           ORDER BY stocked_at ASC LIMIT 1`,
-          [item_id, gdEntryId]
-        );
-        const costPerUnit = batch?.cost || 0;
-        // 1) insert new inventory record
-        const [invIns] = await conn.query(
-          `INSERT INTO inventory
-           (gd_entry_id, item_id, quantity_remaining, cost, stocked_by, stocked_at)
-           VALUES (?,?,?,?,?,NOW())`,
-          [gdEntryId, item_id, quantity_returned, costPerUnit, 'Return']
-        );
-        // 2) log it
-        await conn.query(
-          `INSERT INTO inventory_log 
-           (item_id, gd_entry_id, action, quantity_changed, resulting_quantity, action_by)
-           VALUES (?,?,?,?,?,
-             ?)`,
-          [item_id, gdEntryId, 'restock', quantity_returned, quantity_returned, 'Return']
+        const [batches] = await conn.query(`
+          SELECT id, quantity_remaining
+          FROM inventory
+          WHERE gd_entry_id = ? AND item_id = ?
+          ORDER BY stocked_at ASC
+          LIMIT 1
+        `, [original.gd_entry_id, original.item_id]);
+
+        if (batches.length > 0) {
+          const batch = batches[0];
+          const newQty = batch.quantity_remaining + toReturn;
+
+          await conn.query(`
+            UPDATE inventory
+            SET quantity_remaining = ?, last_updated = NOW()
+            WHERE id = ?`,
+            [newQty, batch.id]
+          );
+
+          await conn.query(`
+            INSERT INTO inventory_log 
+            (item_id, gd_entry_id, action, quantity_changed, resulting_quantity, action_by)
+            VALUES (?, ?, 'restock-merge', ?, ?, ?)`,
+            [
+              original.item_id,
+              original.gd_entry_id,
+              toReturn,
+              newQty,
+              req.user?.name || 'System'
+            ]
+          );
+        } else {
+          await conn.query(`
+            INSERT INTO inventory 
+            (gd_entry_id, item_id, quantity_remaining, cost, mrp, stocked_by, stocked_at, source_return_id)
+            VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)`,
+            [
+              original.gd_entry_id,
+              original.item_id,
+              toReturn,
+              original.cost || 0,
+              original.mrp || 0,
+              req.user?.name || 'System',
+              retInsert.insertId
+            ]
+          );
+        }
+
+        await conn.query(`
+          UPDATE gd_items
+          SET quantity = quantity + ?
+          WHERE gd_entry_id = ? AND item_id = ?`,
+          [toReturn, original.gd_entry_id, original.item_id]
         );
       }
     }
 
-    // 4️⃣ adjust customer balance & invoice totals
-    await conn.query(
-      `UPDATE customers
-       SET balance = balance + ?
-       WHERE id = ?`,
-      [totalRefund, customer_id]
-    );
-    await conn.query(
-      `UPDATE sales_invoices
-       SET gross_total      = gross_total - ?,
-           sales_tax        = sales_tax   - ?,
-           gross_profit     = gross_profit - ?
-       WHERE id = ?`,
-      [totalRefund, totalTaxRev, totalRefund - totalTaxRev, invoiceId]
+    // Update invoice totals
+    await conn.query(`
+      UPDATE sales_invoices
+      SET total_refund = COALESCE(total_refund, 0) + ?,
+          total_refund_tax = COALESCE(total_refund_tax, 0) + ?
+      WHERE id = ?`,
+      [totalRefund, totalTax, invoice_id]
     );
 
+    // ⚖️ Apply refund toward unpaid invoices first (only for 'withholding')
+    if (refund_method === 'withholding') {
+      const totalCredit = totalRefund + totalTax;
+      let creditRemaining = totalCredit;
+    
+      // Pay off unpaid invoices first
+      const [unpaidInvoices] = await conn.query(`
+        SELECT id, gross_total
+        FROM sales_invoices
+        WHERE customer_id = ? AND is_paid = 0
+        ORDER BY created_at ASC
+      `, [customer_id]);
+    
+      for (const inv of unpaidInvoices) {
+        if (creditRemaining <= 0) break;
+    
+        const [[{ paidAmount = 0 }]] = await conn.query(`
+          SELECT COALESCE(SUM(refund_amount + tax_reversal), 0) AS paidAmount
+          FROM sales_returns
+          WHERE invoice_id = ?
+        `, [inv.id]);
+    
+        const unpaid = inv.gross_total - paidAmount;
+    
+        if (creditRemaining >= unpaid) {
+          await conn.query(`UPDATE sales_invoices SET is_paid = 1 WHERE id = ?`, [inv.id]);
+          creditRemaining -= unpaid;
+        } else {
+          creditRemaining = 0;
+        }
+      }
+    
+      // 👇 THIS NEEDS FIX
+      if (creditRemaining > 0) {
+        const [[cust]] = await conn.query(
+          `SELECT balance FROM customer_balances WHERE customer_id = ?`, [customer_id]
+        );
+    
+        const bal = parseFloat(cust?.balance || 0);
+        const adjustment = Math.min(bal, creditRemaining);
+    
+        if (adjustment > 0) {
+          // Reduce existing balance
+          await conn.query(`
+            UPDATE customers SET balance = balance - ? WHERE id = ?
+          `, [adjustment, customer_id]);
+    
+          creditRemaining -= adjustment;
+        }
+    
+        if (creditRemaining > 0) {
+          // Only then add to credit (we owe)
+          await conn.query(`
+            UPDATE customers SET balance = balance + ? WHERE id = ?
+          `, [creditRemaining, customer_id]);
+        }
+      }
+    }
+    
+    // Check if invoice fully refunded
+    const [allItems] = await conn.query(
+      `SELECT quantity_sold, quantity_returned 
+       FROM sales_invoice_items WHERE invoice_id = ?`,
+      [invoice_id]
+    );
+    const fullyReturned = allItems.every(i => Number(i.quantity_returned) >= Number(i.quantity_sold));
+
+    if (fullyReturned) {
+      await conn.query(
+        `UPDATE sales_invoices SET fully_refunded = 1 WHERE id = ?`,
+        [invoice_id]
+      );
+    }
+
     await conn.commit();
-    res.json({ message: 'Return processed', return_number: returnNumber });
+
+    res.json({
+      message: 'Return processed successfully',
+      refundAmount: totalRefund,
+      refundTax: totalTax,
+      fullyReturned,
+      refundMethod: refund_method
+    });
+
   } catch (err) {
     await conn.rollback();
-    console.error(err);
-    res.status(400).json({ error: err.message });
+    console.error('❌ Return error:', err);
+    res.status(500).json({ error: err.message || 'Return failed' });
   } finally {
     conn.release();
   }
 };
 
+
+
+
+
+
+
+
+// POST /api/sales/returns/validate
+exports.validateReturnRestocks = async (req, res) => {
+  const { invoice_number, items } = req.body;
+  const conn = await db.getConnection();
+  try {
+    const [[invoice]] = await conn.query(
+      `SELECT id FROM sales_invoices WHERE invoice_number = ?`,
+      [invoice_number]
+    );
+    if (!invoice) throw new Error("Invoice not found");
+
+    const missingGds = [];
+
+    for (const it of items) {
+      const { item_id, quantity_returned, restock } = it;
+      if (!restock || quantity_returned <= 0) continue;
+
+      const [[info]] = await conn.query(
+        `SELECT sii.gd_entry_id, gi.hs_code
+         FROM sales_invoice_items sii
+         JOIN gd_items gi ON gi.item_id = sii.item_id
+         WHERE sii.invoice_id = ? AND sii.item_id = ?`,
+        [invoice.id, item_id]
+      );
+
+      if (!info) continue;
+
+      const [[gdExists]] = await conn.query(
+        `SELECT COUNT(*) AS found FROM gd_entries WHERE id = ?`,
+        [info.gd_entry_id]
+      );
+
+      if (!gdExists.found) {
+        // Try to find alternate GDs with same HS code
+        const [alternates] = await conn.query(
+          `SELECT ge.id, ge.declaration_number
+           FROM gd_items gi
+           JOIN gd_entries ge ON ge.id = gi.gd_entry_id
+           WHERE gi.hs_code = ?`,
+          [info.hs_code]
+        );
+
+        missingGds.push({
+          item_id,
+          hs_code: info.hs_code,
+          gd_options: alternates
+        });
+      }
+    }
+
+    if (missingGds.length) {
+      return res.status(200).json({ missingGds });
+    }
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    conn.release();
+  }
+};
+
+  
 
 // returns up to 10 invoices that still have >0 units left to return
 exports.getInvoiceSuggestions = async (req, res) => {

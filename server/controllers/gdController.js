@@ -71,7 +71,13 @@ exports.createGD = async (req, res) => {
 
       const incomeTax = Number(item.income_tax || 0);
       const perUnitProfit = (incomeTax / TAX_RATE) / quantity;
-      const salePrice = cost + perUnitProfit;
+      let salePrice = cost + perUnitProfit;
+      
+      // Cap sale price if it exceeds retail price
+      if (salePrice > retailPrice) {
+        salePrice = retailPrice * 0.9; // Apply 10% discount to ensure retailer margin
+      }
+      
 
       const item_number = `${header.gd_number.replace(/\s+/g, '')}-${item.hs_code}`;
       const item_id = `${header.gd_number.replace(/\s+/g, '')}-${item.hs_code}-${index + 1}`;
@@ -299,11 +305,25 @@ exports.deleteItem = async (req, res) => {
 exports.getItemsByGd = async (req, res) => {
   try {
     const [items] = await db.query(`
-      SELECT item_id, description, hs_code, unit, mrp AS retail_price, quantity_remaining
-      FROM inventory
-      WHERE gd_entry_id = ?`, [req.params.id]);
+      SELECT 
+        inv.item_id, 
+        gi.description, 
+        gi.hs_code, 
+        gi.unit, 
+        gi.mrp, 
+        gi.retail_price,
+        gi.sale_price, 
+        inv.quantity_remaining
+      FROM inventory inv
+      JOIN gd_items gi ON gi.item_id = inv.item_id
+      WHERE inv.gd_entry_id = ?
+    `, [req.params.id]);
+
     res.json(items);
   } catch (err) {
+    console.error('❌ Failed to fetch GD items:', err);
     res.status(500).json({ error: 'Failed to fetch GD items' });
   }
 };
+
+

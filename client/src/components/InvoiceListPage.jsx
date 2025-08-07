@@ -167,23 +167,30 @@ const InvoiceListPage = () => {
               <td>Rs {inv.gross_total}</td>
               <td>Rs {inv.withholding_tax}</td>
               <td>Rs {inv.gross_profit}</td>
-              <td>{inv.is_paid ? <span className="text-success">Paid</span> : <span className="text-danger">Unpaid</span>}</td>
+              <td>
+                {inv.is_paid ? (
+                  <>
+                    ✅ Paid<br />
+                    <small>{inv.payment_date && new Date(inv.payment_date).toLocaleDateString()}</small><br />
+                    {inv.payer_name && <small>by {inv.payer_name}</small>}<br />
+                    {inv.payment_bank && <small>via {inv.payment_bank}</small>}<br />
+                    {inv.paid_receipt_path && (
+                      <a
+                        href={`http://localhost:5000/${inv.paid_receipt_path}`}
+                        target="_blank" rel="noopener noreferrer"
+                      >📄 View Receipt</a>
+                    )}
+                  </>
+                ) : (
+                  '❌ Unpaid'
+                )}
+              </td>
               <td>
                 <Button size="sm" variant="outline-primary" onClick={() => navigate(`/invoice/${inv.invoice_number}`)}>View</Button>{' '}
                 {!inv.is_paid && (
                   <Button size="sm" variant="success" onClick={() => openPayModal(inv)}>Mark Paid</Button>
                 )}{' '}
                 <Button size="sm" variant="outline-danger" onClick={() => handleDelete(inv.invoice_number)} disabled={inv.is_paid}>🗑️</Button>{' '}
-                {inv.paid_receipt_path && (
-                  <a
-                    href={`http://localhost:5000/${inv.paid_receipt_path}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="btn btn-sm btn-outline-info ms-1"
-                  >
-                    📄 View Receipt
-                  </a>
-                )}
               </td>
             </tr>
           ))}
@@ -194,7 +201,6 @@ const InvoiceListPage = () => {
         📤 Export Selected to FBR
       </Button>
 
-      {/* Modal for marking invoice as paid */}
       <Modal show={showPayModal} onHide={() => setShowPayModal(false)}>
         <Modal.Header closeButton>
           <Modal.Title>Mark Invoice as Paid</Modal.Title>

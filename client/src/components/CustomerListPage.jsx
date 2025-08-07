@@ -90,29 +90,40 @@ export default function CustomerListPage() {
             <th>Mobile</th>
             <th>CNIC</th>
             <th>Total Purchases</th>
-            <th>Outstanding Balance</th>
+            <th>Owes Us</th>
+            <th>We Owe</th>
+            <th>Net Position</th>
             <th>Action</th>
           </tr>
         </thead>
         <tbody>
           {customers.map(c => {
             const totalPurchases = parseFloat(c.total_purchases) || 0;
-            const balance        = parseFloat(c.balance)         || 0;
+            const balance = parseFloat(c.balance) || 0;
+
             return (
-              <tr key={c.id}
-                  className={balance > (c.credit_limit || 0) ? 'table-danger' : ''}>
+              <tr key={c.id} className={balance > (c.credit_limit || 0) ? 'table-danger' : ''}>
                 <td>{c.name}</td>
                 <td>{c.mobile}</td>
                 <td>{c.cnic}</td>
                 <td>Rs {totalPurchases.toFixed(2)}</td>
-                <td>Rs {balance.toFixed(2)}</td>
+                <td>{balance > 0 ? `Rs ${balance.toFixed(2)}` : '-'}</td>
+                <td>{balance < 0 ? `Rs ${Math.abs(balance).toFixed(2)}` : '-'}</td>
                 <td>
-                  <Button size="sm"
-                          onClick={() => { setEditCust(c); setShowModal(true); }}>
+                  <strong>Rs {Math.abs(balance).toFixed(2)}</strong><br />
+                  <small>
+                    {balance > 0
+                      ? 'Customer owes us'
+                      : balance < 0
+                        ? 'We owe customer'
+                        : 'Settled'}
+                  </small>
+                </td>
+                <td>
+                  <Button size="sm" onClick={() => { setEditCust(c); setShowModal(true); }}>
                     Edit
                   </Button>{' '}
-                  <Button size="sm" variant="danger"
-                          onClick={() => handleDelete(c.id)}>
+                  <Button size="sm" variant="danger" onClick={() => handleDelete(c.id)}>
                     Delete
                   </Button>
                 </td>

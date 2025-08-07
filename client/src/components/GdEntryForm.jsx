@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import axios from 'axios';
 import {
@@ -25,15 +25,50 @@ const blankItem = {
   cost: '', gross_margin: '', sale_price: ''
 };
 
-
 export default function GdEntryForm() {
   const [header, setHeader] = useState(initialHeader);
   const [items, setItems] = useState([blankItem]);
   const [charges, setCharges] = useState([{ charge_type: '', charge_amount: '' }]);
   const [landedCost, setLandedCost] = useState(null);
+  const [errors, setErrors] = useState({});
+
+  useEffect(() => {
+    const inputs = Array.from(document.querySelectorAll('input, select, textarea')).filter(
+      (el) => !el.disabled && el.offsetParent !== null
+    );
+    if (inputs.length) inputs[0].focus();
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const index = inputs.indexOf(e.target);
+        if (index > -1 && index < inputs.length - 1) {
+          inputs[index + 1].focus();
+        }
+      }
+    };
+
+    inputs.forEach((input) => input.addEventListener('keydown', handleKeyDown));
+
+    return () => {
+      inputs.forEach((input) => input.removeEventListener('keydown', handleKeyDown));
+    };
+  }, []);
 
   const handleHeaderChange = (e) => {
-    setHeader({ ...header, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setHeader((prev) => ({ ...prev, [name]: value }));
+
+    // Real-time validation
+    if (!value.trim()) {
+      setErrors((prev) => ({ ...prev, [name]: `${name.replace(/_/g, ' ')} is required` }));
+    } else {
+      setErrors((prev) => {
+        const updated = { ...prev };
+        delete updated[name];
+        return updated;
+      });
+    }
   };
 
   const handleItemChange = (i, e) => {
@@ -90,16 +125,20 @@ export default function GdEntryForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    const confirm = await Swal.fire({
-      title: 'Are you sure?',
-      text: "Submit this GD entry?",
-      icon: 'question',
-      showCancelButton: true,
-      confirmButtonText: 'Yes, Submit!',
-      cancelButtonText: 'Cancel'
+    const newErrors = {};
+    Object.entries(header).forEach(([key, value]) => {
+      if (!value.trim()) {
+        newErrors[key] = `${key.replace(/_/g, ' ')} is required`;
+      }
     });
 
-    if (!confirm.isConfirmed) return;
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      Swal.fire('Validation Error', 'Please fill all required GD Header fields.', 'warning');
+      return;
+    }
+
+    setErrors({});
 
     const validCharges = charges.filter(
       c => c.charge_type.trim() && c.charge_amount !== '' && !isNaN(c.charge_amount)
@@ -119,150 +158,198 @@ export default function GdEntryForm() {
     }
   };
 
-  return (
-    <Container fluid className="my-4">
-      <h2 className="mb-4">📋 GD Entry Form</h2>
+  // Inside GdEntryForm component, replace the JSX return block with this:
 
-      <Form onSubmit={handleSubmit}>
-        {/* Header Card */}
-        <Card className="mb-4">
-          <Card.Header>📄 GD Header Details</Card.Header>
-          <Card.Body>
-            <Row>
-              {[0, 1].map((colIndex) => {
-                const keys = Object.entries(header);
-                const half = Math.ceil(keys.length / 2);
-                const slice = colIndex === 0 ? keys.slice(0, half) : keys.slice(half);
+return (
+  <Container
+    fluid
+    className="py-5 px-4"
+    style={{
+      background: 'linear-gradient(to bottom right, rgb(236, 226, 226), rgb(19, 4, 4))',
+      color: '#000',
+      minHeight: '100vh',
+    }}
+  >
+    <h2 className="mb-4 fw-bold">📋 GD Entry Form</h2>
+    <Form onSubmit={handleSubmit}>
+      {/* Header */}
+      <Card
+        className="mb-5"
+        style={{
+          background: 'rgba(255,255,255,0.05)',
+          border: '1px solid rgba(0,0,0,0.1)',
+          borderRadius: '20px',
+          backdropFilter: 'blur(10px)',
+        }}
+      >
+        <Card.Header className="fw-bold">📄 GD Header Details</Card.Header>
+        <Card.Body>
+          <Row>
+            {[0, 1].map((colIndex) => {
+              const keys = Object.entries(header);
+              const half = Math.ceil(keys.length / 2);
+              const slice = colIndex === 0 ? keys.slice(0, half) : keys.slice(half);
 
-                return (
-                  <Col md={6} key={colIndex}>
-                    <Table bordered responsive hover className="mb-3">
-                      <tbody>
-                        {slice.map(([key, value]) => (
-                          <tr key={key}>
-                            <th className="text-capitalize">{key.replace(/_/g, ' ')}</th>
-                            <td>
-                              <Form.Control
-                                name={key}
-                                value={value}
-                                onChange={handleHeaderChange}
-                                aria-label={key.replace(/_/g, ' ')}
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </Table>
-                  </Col>
-                );
-              })}
-            </Row>
-          </Card.Body>
-        </Card>
+              return (
+                <Col md={6} key={colIndex}>
+                  <Table bordered responsive hover className="mb-3">
+                    <tbody>
+                      {slice.map(([key, value]) => (
+                        <tr key={key}>
+                          <th className="text-capitalize">{key.replace(/_/g, ' ')}</th>
+                          <td>
+                            <Form.Control
+                              type={key === 'gd_date' ? 'date' : 'text'}
+                              name={key}
+                              value={value}
+                              onChange={handleHeaderChange}
+                              isInvalid={!!errors[key]}
+                              placeholder={key.replace(/_/g, ' ')}
+                              title={`Enter ${key.replace(/_/g, ' ')}`}
+                            />
+                            <Form.Control.Feedback type="invalid">
+                              {errors[key]}
+                            </Form.Control.Feedback>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </Table>
+                </Col>
+              );
+            })}
+          </Row>
+        </Card.Body>
+      </Card>
 
-        {/* File Upload */}
-        <Form.Group className="mb-4">
-          <Form.Label className="fw-bold">📂 Upload Items from Excel</Form.Label>
-          <Form.Control
-            type="file"
-            accept=".xlsx, .xls"
-            onChange={handleFileUpload}
-            className="border p-3"
-            aria-label="Upload Excel File"
-          />
-          <Form.Text className="text-muted">Supported formats: .xlsx, .xls</Form.Text>
-        </Form.Group>
-
-        {/* Items Table */}
-        <Card className="mb-4">
-          <Card.Header>📦 Item Details</Card.Header>
-          <Card.Body style={{ overflowX: 'auto' }}>
-            <Table bordered striped hover responsive>
-            <thead className="table-secondary">
-  <tr>
-    {Object.keys(blankItem).map((key, idx) => (
-      <th key={idx}>{key.replace(/_/g, ' ')}</th>
-    ))}
-  </tr>
-</thead>
-
-              <tbody>
-                {items.map((item, i) => (
-                  <tr key={i}>
-                    {Object.entries(item).map(([k, v]) => (
-                      <td key={k}>
-                        <Form.Control
-                          name={k}
-                          value={v}
-                          onChange={(e) => handleItemChange(i, e)}
-                        />
-                      </td>
-                    ))}
-                  </tr>
+      {/* Items Table */}
+      <Card
+        className="mb-5"
+        style={{
+          background: 'rgba(255,255,255,0.05)',
+          border: '1px solid rgba(0,0,0,0.1)',
+          borderRadius: '20px',
+          backdropFilter: 'blur(10px)',
+        }}
+      >
+        <Card.Header className="fw-bold">📦 Item Details</Card.Header>
+        <Card.Body style={{ overflowX: 'auto' }}>
+          <Table bordered striped hover responsive size="sm">
+            <thead className="table-dark">
+              <tr>
+                {Object.keys(blankItem).map((key, idx) => (
+                  <th key={idx}>{key.replace(/_/g, ' ')}</th>
                 ))}
-              </tbody>
-            </Table>
-            <Button variant="outline-primary" onClick={addItem}>
-              <FaPlus className="me-2" /> Add Item
-            </Button>
-          </Card.Body>
-        </Card>
-
-        {/* Charges */}
-        <Card className="mb-4">
-          <Card.Header>💰 Additional Charges</Card.Header>
-          <Card.Body>
-            <Table bordered hover>
-              <thead>
-                <tr>
-                  <th>Charge Type</th>
-                  <th>Charge Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item, i) => (
+                <tr key={i}>
+                  {Object.entries(item).map(([k, v]) => (
+                    <td key={k}>
+                      <Form.Control
+                        name={k}
+                        value={v}
+                        onChange={(e) => handleItemChange(i, e)}
+                        placeholder={k.replace(/_/g, ' ')}
+                        title={`Enter ${k.replace(/_/g, ' ')}`}
+                      />
+                    </td>
+                  ))}
                 </tr>
-              </thead>
-              <tbody>
-                {charges.map((charge, i) => (
-                  <tr key={i}>
-                    <td>
-                      <Form.Control
-                        name="charge_type"
-                        value={charge.charge_type}
-                        onChange={(e) => handleChargeChange(i, e)}
-                      />
-                    </td>
-                    <td>
-                      <Form.Control
-                        type="number"
-                        name="charge_amount"
-                        value={charge.charge_amount}
-                        onChange={(e) => handleChargeChange(i, e)}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-            <Button variant="outline-primary" onClick={addCharge}>
-              <FaPlus className="me-2" /> Add Charge
-            </Button>
-          </Card.Body>
-        </Card>
+              ))}
+            </tbody>
+          </Table>
+          <Button
+  onClick={addItem}
+  className="mt-3"
+  style={{
+    backgroundColor: '#000',
+    color: '#fff',
+    border: '1px solid #000',
+  }}
+>
+  <FaPlus className="me-2" /> Add Item
+</Button>
 
-        {/* Submit */}
-        <div className="d-grid">
-          <Button type="submit" variant="success" size="lg">
-            <FaCheckCircle className="me-2" /> Submit GD
-          </Button>
-        </div>
-      </Form>
+        </Card.Body>
+      </Card>
 
-      {/* Landed Cost */}
-      {landedCost !== null && (
-          <Alert variant="info" className="mt-4">
-            <strong>📊 Average Landed Cost:</strong> Rs {landedCost.toFixed(2)} <br />
-            <span className="text-muted">You can view suggested sale price in the items table above.</span>
-          </Alert>
-        )}
+      {/* Charges Table */}
+      <Card
+        className="mb-5"
+        style={{
+          background: 'rgba(255,255,255,0.05)',
+          border: '1px solid rgba(0,0,0,0.1)',
+          borderRadius: '20px',
+          backdropFilter: 'blur(10px)',
+        }}
+      >
+        <Card.Header className="fw-bold">💰 Additional Charges</Card.Header>
+        <Card.Body>
+          <Table bordered hover className="mb-3">
+            <thead className="table-dark">
+              <tr>
+                <th>Charge Type</th>
+                <th>Charge Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {charges.map((charge, i) => (
+                <tr key={i}>
+                  <td>
+                    <Form.Control
+                      name="charge_type"
+                      value={charge.charge_type}
+                      onChange={(e) => handleChargeChange(i, e)}
+                      placeholder="Type"
+                      title="Enter charge type"
+                    />
+                  </td>
+                  <td>
+                    <Form.Control
+                      type="number"
+                      name="charge_amount"
+                      value={charge.charge_amount}
+                      onChange={(e) => handleChargeChange(i, e)}
+                      placeholder="Amount"
+                      title="Enter charge amount"
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+          <Button
+  style={{
+    backgroundColor: '#000',
+    color: '#fff',
+    border: '1px solid #000',
+  }}
+  onClick={addCharge}
+  className="mt-2"
+>
+  <FaPlus className="me-2" /> Add Charge
+</Button>
 
-    </Container>
-  );
+        </Card.Body>
+      </Card>
+
+      {/* Submit Button */}
+      <div className="d-grid">
+        <Button type="submit" variant="success" size="lg">
+          <FaCheckCircle className="me-2" /> Submit GD
+        </Button>
+      </div>
+    </Form>
+
+    {landedCost !== null && (
+      <Alert variant="info" className="mt-4">
+        <strong>📊 Average Landed Cost:</strong> Rs {landedCost.toFixed(2)} <br />
+        <span className="text-muted">You can view suggested sale price in the items table above.</span>
+      </Alert>
+    )}
+  </Container>
+);
+
 }

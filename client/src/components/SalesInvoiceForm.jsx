@@ -1,7 +1,9 @@
-// SalesInvoiceForm.jsx
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
-import { Container, Form, Button, Table, Row, Col, Modal } from 'react-bootstrap';
+import {
+  Container, Form, Button, Table, Row, Col, Modal,
+  Toast, ToastContainer
+} from 'react-bootstrap';
 import AddCustomerForm from './AddCustomerForm';
 import { useNavigate } from 'react-router-dom';
 
@@ -17,6 +19,8 @@ const SalesInvoiceForm = () => {
   const [withholdingRate, setWithholdingRate] = useState(0.01);
   const [taxSection, setTaxSection] = useState('236H');
   const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -86,9 +90,17 @@ const SalesInvoiceForm = () => {
             onChange={(e) => {
               const id = e.target.value;
               setSelectedCustomer(id);
+
               const customer = customers.find(c => c.id === parseInt(id));
+              if (!customer) {
+                console.warn("❗ Customer not found for ID:", id);
+                setSelectedCustomerData(null);
+                setWithholdingRate(0.01);
+                return;
+              }
+
               setSelectedCustomerData(customer);
-              setWithholdingRate(customer?.filer_status === "filer" ? 0.005 : 0.01);
+              setWithholdingRate(customer.filer_status === "filer" ? 0.005 : 0.01);
             }}
           >
             <option value="">Select customer</option>
@@ -156,10 +168,15 @@ const SalesInvoiceForm = () => {
           />
           <div className="border p-2 bg-light" style={{ maxHeight: '200px', overflowY: 'auto' }}>
             {gdItems
-              .filter(i =>
-                i.quantity_remaining > 0 &&
-                (i.description.toLowerCase().includes(search.toLowerCase()) || i.hs_code.includes(search))
-              )
+              .filter(i => {
+                const desc = i.description || '';
+                const hs = i.hs_code || '';
+                return (
+                  i.quantity_remaining > 0 &&
+                  (desc.toLowerCase().includes(search.toLowerCase()) ||
+                   hs.includes(search))
+                );
+              })
               .map((item) => (
                 <div key={item.item_id} className="mb-1 cursor-pointer" onClick={() => handleAddItem(item)}>
                   ➕ {item.description} ({item.hs_code})
@@ -235,7 +252,7 @@ const SalesInvoiceForm = () => {
         </>
       )}
 
-      {/* Modal for New Customer */}
+      {/* ➕ Add Customer Modal */}
       <Modal show={showCustomerModal} onHide={() => setShowCustomerModal(false)} size="lg">
         <Modal.Header closeButton>
           <Modal.Title>Add New Customer</Modal.Title>
@@ -243,17 +260,25 @@ const SalesInvoiceForm = () => {
         <Modal.Body>
           <AddCustomerForm
             onSuccess={(newCustomer) => {
-              axios.get('/api/customers').then(res => {
-                setCustomers(res.data);
-                setShowCustomerModal(false);
-                setSelectedCustomer(newCustomer.id);
-                setSelectedCustomerData(newCustomer);
-                setWithholdingRate(newCustomer?.filer_status === "filer" ? 0.005 : 0.01);
-              });
+              setShowCustomerModal(false);
+              setSelectedCustomer(newCustomer.id);
+              setSelectedCustomerData(newCustomer);
+              setWithholdingRate(newCustomer.filer_status === "filer" ? 0.005 : 0.01);
+              setCustomers(prev => [...prev, newCustomer]); // Optional UI speed
+              axios.get('/api/customers').then(res => setCustomers(res.data));
+              setToastMessage(`✅ Customer "${newCustomer.name}" added successfully`);
+              setShowToast(true);
             }}
           />
         </Modal.Body>
       </Modal>
+
+      {/* ✅ Toast Success */}
+      <ToastContainer position="bottom-end" className="p-3">
+        <Toast onClose={() => setShowToast(false)} show={showToast} delay={3000} autohide bg="success">
+          <Toast.Body className="text-white">{toastMessage}</Toast.Body>
+        </Toast>
+      </ToastContainer>
     </Container>
   );
 };
