@@ -3,7 +3,7 @@ name: Build Windows Installer
 on:
   workflow_dispatch:
   push:
-    branches: [ main ]   # change if your default branch isn't main
+    branches: [ main ]   # change if your default branch isn't 'main'
 
 jobs:
   build-win:
@@ -30,12 +30,13 @@ jobs:
 
       - name: Show repo layout (sanity check)
         run: |
+          echo === root ===
           dir
-          echo ==== client ====
-          if exist client (dir client) else (echo client folder missing & exit 1)
-          echo ==== server ====
-          if exist server (dir server) else (echo server folder missing & exit 1)
-          echo ==== assets ====
+          echo === client ===
+          if exist client (dir client) else (echo ERROR: client folder missing & exit 1)
+          echo === server ===
+          if exist server (dir server) else (echo ERROR: server folder missing & exit 1)
+          echo === assets (icons) ===
           if exist assets (dir assets) else (echo NOTE: assets folder missing)
 
       # ---------- Install deps (root, client, server) ----------
@@ -60,24 +61,50 @@ jobs:
         if: ${{ failure() }}
         run: npm install --prefix server
 
-      # ---------- Rebuild native modules for Electron (better-sqlite3) ----------
-      - name: Rebuild native deps
-        run: npx electron-builder install-app-deps
-
-      # ---------- Package Windows installer (.exe) ----------
-      - name: Package Windows (.exe)
-        run: npm run dist
+      # ---------- Build React (avoid CRA warnings-as-errors) ----------
+      - name: Build client
+        run: npm --prefix client run build
         env:
-          CI: ""   # prevent CRA from failing on warnings
-          DEBUG: "electron-builder"
-          ELECTRON_BUILDER_LOG_LEVEL: "debug"
-          ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: "true"
+          CI: ""   # prevents CRA from failing on warnings
 
-      # ---------- Upload the .exe ----------
-      - name: Upload installer artifact
+      # ---------- Figure out Electron version & rebuild better-sqlite3 ----------
+      - name: Compute Electron version
+        id: ele
+        shell: bash
+        run: |
+          VER=$(node -p "require('./package.json').devDependencies.electron.replace('^','')")
+          echo "version=$VER" >> $GITHUB_OUTPUT
+
+      - name: Rebuild better-sqlite3 for Electron
+        run: |
+          echo Electron target: ${{ steps.ele.outputs.version }}
+          npm rebuild better-sqlite3 --runtime=electron --target=${{ steps.ele.outputs.version }} --disturl=https://electronjs.org/headers --build-from-source
+          npx electron-builder install-app-deps
+        env:
+          npm_config_msvs_version: "2022"
+
+      # ---------- Package Windows (.exe) with verbose logs ----------
+      - name: Package Windows (.exe)
+        run: |
+          $env:DEBUG="electron-builder"
+          $env:ELECTRON_BUILDER_LOG_LEVEL="debug"
+          $env:CI=""
+          npm run dist 2>&1 | Tee-Object -FilePath build-log.txt
+        shell: powershell
+
+      # ---------- Upload the installer & logs (even on failure) ----------
+      - name: Upload installer
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
           path: |
             dist\*Setup*.exe
             dist\*.exe
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build-log.txt
