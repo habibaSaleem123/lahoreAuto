@@ -1,9 +1,9 @@
 name: Build Windows Installer
 
 on:
-  workflow_dispatch:          # manual run button
+  workflow_dispatch:
   push:
-    branches: [ main ]        # ← change if your default branch isn't "main"
+    branches: [ main ]  # change if your default branch isn't "main"
 
 jobs:
   build-win:
@@ -19,54 +19,58 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      - name: Show versions
+      # ---- Preflight: verify required files/directories exist ----
+      - name: Preflight checks
+        shell: pwsh
         run: |
-          node -v
-          npm -v
-          echo "Workspace:"
-          dir
-          echo "client:"
-          dir client
-          echo "server:"
-          dir server
+          if (-not (Test-Path package.json)) { Write-Error "Missing ROOT package.json at repo root."; exit 1 }
+          if (-not (Test-Path electron/main.js)) { Write-Error "Missing electron/main.js"; exit 1 }
+          if (-not (Test-Path assets/icon.ico))  { Write-Warning "assets/icon.ico missing (Windows icon)"; }
+          if (-not (Test-Path client/package.json)) { Write-Error "Missing client/package.json"; exit 1 }
+          if (-not (Test-Path server/server.js))    { Write-Error "Missing server/server.js"; exit 1 }
+          Write-Host "Preflight OK."
 
-      # ── install deps in root/client/server ──────────────────────────
-      - name: Install root deps (electron, builder, etc.)
+      # ---- Install root dependencies (electron, builder, etc.) ----
+      - name: Install root deps
+        shell: pwsh
         run: |
-          if exist package-lock.json (npm ci) else (npm install)
+          if (Test-Path package-lock.json) { npm ci } else { npm install }
 
+      # ---- Install client/server deps ----
       - name: Install client deps
+        shell: pwsh
         run: |
-          if exist client\\package-lock.json (npm ci --prefix client) else (npm install --prefix client)
+          if (Test-Path client/package-lock.json) { npm ci --prefix client } else { npm install --prefix client }
 
-      - name: Install server deps (better-sqlite3 here)
+      - name: Install server deps
+        shell: pwsh
         run: |
-          if exist server\\package-lock.json (npm ci --prefix server) else (npm install --prefix server)
+          if (Test-Path server/package-lock.json) { npm ci --prefix server } else { npm install --prefix server }
 
-      # ── build React ─────────────────────────────────────────────────
-      - name: Build React (client)
+      # ---- Build React (CRA sometimes fails on warnings with CI=true) ----
+      - name: Build React
         run: npm --prefix client run build
         env:
-          CI: ""                   # don't fail on CRA warnings
+          CI: ""
 
-      # ── prep native modules for Electron (critical for better-sqlite3) ─
-      - name: Install Electron native headers
+      # ---- Prepare native modules (better-sqlite3) for Electron ----
+      - name: Install Electron headers for native modules
         run: npx electron-builder install-app-deps
 
       - name: Rebuild better-sqlite3 for Electron
         run: npx electron-rebuild -f -w better-sqlite3 --module-dir server
 
-      # ── package Windows installer ───────────────────────────────────
+      # ---- Package Windows installer ----
       - name: Package (electron-builder)
         run: npx electron-builder --win nsis
         env:
           NODE_ENV: production
-          CI: ""                   # just in case builder triggers a build step
+          CI: ""
 
       - name: List dist output
         run: dir dist
 
-      # ── upload the .exe artifact ────────────────────────────────────
+      # ---- Upload the .exe artifact ----
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
