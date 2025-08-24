@@ -21,9 +21,15 @@ import ReturnPage from './components/ReturnPage';
 import CustomerListPage from './components/CustomerListPage';
 import PaymentsEntryPage from './components/PaymentsEntryPage';
 import BankListPage from './components/BankListPage';
+
+import ReportsHub from './components/ReportsHub';
 import StockReportPage from './components/StockReportPage';
 import SalesReportPage from './components/SalesReportPage';
-import ReportsHub from './components/ReportsHub';
+import TaxReportPage from './components/TaxReportPage';
+import CustomerLedgerPage from './components/CustomerLedgerPage';
+
+// ⬇️ NEW: Profit Summary
+import ProfitSummaryPage from './components/ProfitSummaryPage';
 
 function App() {
   return (
@@ -33,7 +39,7 @@ function App() {
         {/* Public Route */}
         <Route path="/login" element={<Login />} />
 
-        {/* Dashboard Page - Now default */}
+        {/* Dashboard (default) */}
         <Route
           path="/"
           element={
@@ -51,7 +57,7 @@ function App() {
           }
         />
 
-        {/* All Modules Below */}
+        {/* Core modules */}
         <Route
           path="/entry-form"
           element={
@@ -148,6 +154,8 @@ function App() {
             </PrivateRoute>
           }
         />
+
+        {/* Reports hub */}
         <Route
           path="/reports"
           element={
@@ -156,6 +164,8 @@ function App() {
             </PrivateRoute>
           }
         />
+
+        {/* Individual reports */}
         <Route
           path="/reports/stock"
           element={
@@ -169,6 +179,30 @@ function App() {
           element={
             <PrivateRoute>
               <SalesReportPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/reports/tax"
+          element={
+            <PrivateRoute>
+              <TaxReportPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/reports/ledger/customer"
+          element={
+            <PrivateRoute>
+              <CustomerLedgerPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/reports/profit"
+          element={
+            <PrivateRoute>
+              <ProfitSummaryPage />
             </PrivateRoute>
           }
         />

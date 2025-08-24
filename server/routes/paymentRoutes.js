@@ -26,4 +26,5 @@ const upload = multer({ storage });
 // ✅ Route for creating payment with file upload
 router.post('/', upload.single('receipt'), paymentController.createPayment);
 
+
 module.exports = router;

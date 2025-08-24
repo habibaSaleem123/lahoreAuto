@@ -1,0 +1,42 @@
+{
+  "name": "lahore-auto-traders",
+  "version": "1.0.0",
+  "private": true,
+  "main": "electron/main.js",
+  "scripts": {
+    "postinstall": "electron-builder install-app-deps",
+    "dev:client": "cross-env PORT=3000 npm --prefix client start",
+    "dev:server": "cross-env NODE_ENV=development node server/server.js",
+    "dev:electron": "wait-on tcp:3000 tcp:5000 && electron .",
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\" \"npm:dev:electron\"",
+    "build:react": "npm --prefix client run build",
+    "pack": "npm run build:react && cross-env NODE_ENV=production electron-builder --dir",
+    "dist": "npm run build:react && cross-env NODE_ENV=production electron-builder"
+  },
+  "build": {
+    "appId": "com.lahoreauto.traders",
+    "productName": "Lahore Auto Traders",
+    "files": [
+      "electron/**/*",
+      "server/**/*",
+      "client/build/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "asarUnpack": ["**/*.node"],
+    "directories": {
+      "buildResources": "assets"
+    },
+    "win":  { "target": ["nsis"], "icon": "assets/icon.ico" },
+    "mac":  { "target": ["dmg"],  "icon": "assets/icon.icns" },
+    "linux":{ "target": ["AppImage"], "icon": "assets/icon.png" },
+    "npmRebuild": true
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "cross-env": "^7.0.3",
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "wait-on": "^7.2.0"
+  }
+}

@@ -1,8 +1,9 @@
+// server/routes/reportRoutes.js
 const express = require('express');
 const router = express.Router();
-const reportController = require('../controllers/reportController');
+const reports = require('../controllers/reportController');
 
-// Now use the function
-router.get('/stock', reportController.getStockReport);
-
+router.get('/stock/summary', reports.getStockSummary);
+router.get('/stock/ledger',  reports.getStockLedger);
+router.get('/profit/summary', reports.profitSummary);
 module.exports = router;
