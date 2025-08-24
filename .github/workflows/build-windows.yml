@@ -1,9 +1,9 @@
 name: Build Windows Installer
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:      # allow manual run
   push:
-    branches: [ main ]  # change if your default branch isn't "main"
+    branches: [ main ]    # change if your default branch is different
 
 jobs:
   build-win:
@@ -17,50 +17,38 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
-      # ---- Preflight: verify required files/directories exist ----
-      - name: Preflight checks
+      - name: Show repo layout (quick debug)
         shell: pwsh
         run: |
-          if (-not (Test-Path package.json)) { Write-Error "Missing ROOT package.json at repo root."; exit 1 }
-          if (-not (Test-Path electron/main.js)) { Write-Error "Missing electron/main.js"; exit 1 }
-          if (-not (Test-Path assets/icon.ico))  { Write-Warning "assets/icon.ico missing (Windows icon)"; }
-          if (-not (Test-Path client/package.json)) { Write-Error "Missing client/package.json"; exit 1 }
-          if (-not (Test-Path server/server.js))    { Write-Error "Missing server/server.js"; exit 1 }
-          Write-Host "Preflight OK."
+          Write-Host "Root files:"; Get-ChildItem -Force
+          Write-Host "`nclient/:"; Get-ChildItem client -Force
+          Write-Host "`nserver/:"; Get-ChildItem server -Force
 
-      # ---- Install root dependencies (electron, builder, etc.) ----
+      # ---- Install deps (no conditionals; PowerShell-safe) ----
       - name: Install root deps
-        shell: pwsh
-        run: |
-          if (Test-Path package-lock.json) { npm ci } else { npm install }
+        run: npm install
 
-      # ---- Install client/server deps ----
       - name: Install client deps
-        shell: pwsh
-        run: |
-          if (Test-Path client/package-lock.json) { npm ci --prefix client } else { npm install --prefix client }
+        run: npm install --prefix client
 
       - name: Install server deps
-        shell: pwsh
-        run: |
-          if (Test-Path server/package-lock.json) { npm ci --prefix server } else { npm install --prefix server }
+        run: npm install --prefix server
 
-      # ---- Build React (CRA sometimes fails on warnings with CI=true) ----
+      # ---- Build React (don’t fail on CRA warnings) ----
       - name: Build React
         run: npm --prefix client run build
         env:
           CI: ""
 
-      # ---- Prepare native modules (better-sqlite3) for Electron ----
-      - name: Install Electron headers for native modules
+      # ---- Prepare native modules for Electron (better-sqlite3) ----
+      - name: Install Electron headers
         run: npx electron-builder install-app-deps
 
       - name: Rebuild better-sqlite3 for Electron
         run: npx electron-rebuild -f -w better-sqlite3 --module-dir server
 
-      # ---- Package Windows installer ----
+      # ---- Package Windows installer (.exe) ----
       - name: Package (electron-builder)
         run: npx electron-builder --win nsis
         env:
@@ -70,8 +58,8 @@ jobs:
       - name: List dist output
         run: dir dist
 
-      # ---- Upload the .exe artifact ----
-      - name: Upload installer artifact
+      # ---- Upload the installer artifact ----
+      - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
