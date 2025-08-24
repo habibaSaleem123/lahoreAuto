@@ -1,9 +1,9 @@
 name: Build Windows Installer
 
 on:
-  workflow_dispatch:      # allow manual run
+  workflow_dispatch:        # manually run from the Actions tab
   push:
-    branches: [ main ]    # change if your default branch is different
+    branches: [ main ]      # change if your default branch is not 'main'
 
 jobs:
   build-win:
@@ -17,53 +17,55 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            client/package-lock.json
+            server/package-lock.json
 
-      - name: Show repo layout (quick debug)
-        shell: pwsh
+      - name: Show versions
         run: |
-          Write-Host "Root files:"; Get-ChildItem -Force
-          Write-Host "`nclient/:"; Get-ChildItem client -Force
-          Write-Host "`nserver/:"; Get-ChildItem server -Force
+          node -v
+          npm -v
 
-      # ---- Install deps (no conditionals; PowerShell-safe) ----
+      # --- Install deps in all three places ---
       - name: Install root deps
+        run: npm ci
+        continue-on-error: true
+
+      - name: Fallback root install (no lockfile)
+        if: ${{ failure() }}
         run: npm install
 
       - name: Install client deps
+        run: npm ci --prefix client
+        continue-on-error: true
+
+      - name: Fallback client install
+        if: ${{ failure() }}
         run: npm install --prefix client
 
       - name: Install server deps
+        run: npm ci --prefix server
+        continue-on-error: true
+
+      - name: Fallback server install
+        if: ${{ failure() }}
         run: npm install --prefix server
 
-      # ---- Build React (don’t fail on CRA warnings) ----
-      - name: Build React
-        run: npm --prefix client run build
+      # --- Build & package ---
+      # CRA can fail builds when CI=true; neutralize that here.
+      - name: Build Windows installer
+        run: npm run dist
         env:
-          CI: ""
+          CI: ""                               # prevent CRA from treating warnings as errors
+          ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: "true"
 
-      # ---- Prepare native modules for Electron (better-sqlite3) ----
-      - name: Install Electron headers
-        run: npx electron-builder install-app-deps
-
-      - name: Rebuild better-sqlite3 for Electron
-        run: npx electron-rebuild -f -w better-sqlite3 --module-dir server
-
-      # ---- Package Windows installer (.exe) ----
-      - name: Package (electron-builder)
-        run: npx electron-builder --win nsis
-        env:
-          NODE_ENV: production
-          CI: ""
-
-      - name: List dist output
-        run: dir dist
-
-      # ---- Upload the installer artifact ----
-      - name: Upload installer
+      # --- Upload the .exe ---
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-installer
           path: |
             dist\*Setup*.exe
             dist\*.exe
-          if-no-files-found: warn
