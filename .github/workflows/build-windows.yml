@@ -1,9 +1,9 @@
 name: Build Windows Installer
 
 on:
-  workflow_dispatch:        # manually run from the Actions tab
+  workflow_dispatch:
   push:
-    branches: [ main ]      # change if your default branch is not 'main'
+    branches: [ main ]   # change if your default branch isn't main
 
 jobs:
   build-win:
@@ -28,40 +28,52 @@ jobs:
           node -v
           npm -v
 
-      # --- Install deps in all three places ---
-      - name: Install root deps
+      - name: Show repo layout (sanity check)
+        run: |
+          dir
+          echo ==== client ====
+          if exist client (dir client) else (echo client folder missing & exit 1)
+          echo ==== server ====
+          if exist server (dir server) else (echo server folder missing & exit 1)
+          echo ==== assets ====
+          if exist assets (dir assets) else (echo NOTE: assets folder missing)
+
+      # ---------- Install deps (root, client, server) ----------
+      - name: Install root deps (ci)
         run: npm ci
         continue-on-error: true
-
-      - name: Fallback root install (no lockfile)
+      - name: Install root deps (fallback)
         if: ${{ failure() }}
         run: npm install
 
-      - name: Install client deps
+      - name: Install client deps (ci)
         run: npm ci --prefix client
         continue-on-error: true
-
-      - name: Fallback client install
+      - name: Install client deps (fallback)
         if: ${{ failure() }}
         run: npm install --prefix client
 
-      - name: Install server deps
+      - name: Install server deps (ci)
         run: npm ci --prefix server
         continue-on-error: true
-
-      - name: Fallback server install
+      - name: Install server deps (fallback)
         if: ${{ failure() }}
         run: npm install --prefix server
 
-      # --- Build & package ---
-      # CRA can fail builds when CI=true; neutralize that here.
-      - name: Build Windows installer
+      # ---------- Rebuild native modules for Electron (better-sqlite3) ----------
+      - name: Rebuild native deps
+        run: npx electron-builder install-app-deps
+
+      # ---------- Package Windows installer (.exe) ----------
+      - name: Package Windows (.exe)
         run: npm run dist
         env:
-          CI: ""                               # prevent CRA from treating warnings as errors
+          CI: ""   # prevent CRA from failing on warnings
+          DEBUG: "electron-builder"
+          ELECTRON_BUILDER_LOG_LEVEL: "debug"
           ELECTRON_BUILDER_ALLOW_UNRESOLVED_DEPENDENCIES: "true"
 
-      # --- Upload the .exe ---
+      # ---------- Upload the .exe ----------
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
