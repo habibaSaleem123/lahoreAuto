@@ -1,0 +1,43 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:      # lets you run it manually from GitHub UI
+  push:
+    branches: [ main ]    # change "main" to your default branch if different
+
+jobs:
+  build-win:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Try fast, reproducible install if lockfile exists
+      - name: Install dependencies (root)
+        run: npm ci
+        continue-on-error: true
+
+      # Fallback if no lockfile
+      - name: Install dependencies (fallback)
+        if: ${{ failure() }}
+        run: npm install
+
+      # Build React + package Electron (produces dist/*.exe)
+      # We unset CI so CRA doesn't fail on warnings.
+      - name: Build & package Windows installer
+        run: npm run dist
+        env:
+          CI: ""
+
+      # Upload the .exe as an artifact to download
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist\*Setup*.exe
