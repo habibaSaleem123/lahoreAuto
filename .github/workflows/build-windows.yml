@@ -1,9 +1,9 @@
 name: Build Windows Installer
 
 on:
-  workflow_dispatch:        # manual run button
+  workflow_dispatch:          # manual run button
   push:
-    branches: [ main ]      # change if your default branch is different
+    branches: [ main ]        # ← change if your default branch isn't "main"
 
 jobs:
   build-win:
@@ -17,61 +17,56 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
 
       - name: Show versions
         run: |
           node -v
           npm -v
+          echo "Workspace:"
+          dir
+          echo "client:"
+          dir client
+          echo "server:"
+          dir server
 
-      # ----- Install deps in all 3 places: root, client, server -----
-      - name: Install root dev deps (electron, builder, etc.)
+      # ── install deps in root/client/server ──────────────────────────
+      - name: Install root deps (electron, builder, etc.)
         run: |
-          if exist package-lock.json (
-            npm ci
-          ) else (
-            npm install
-          )
+          if exist package-lock.json (npm ci) else (npm install)
 
       - name: Install client deps
         run: |
-          if exist client\\package-lock.json (
-            npm ci --prefix client
-          ) else (
-            npm install --prefix client
-          )
+          if exist client\\package-lock.json (npm ci --prefix client) else (npm install --prefix client)
 
       - name: Install server deps (better-sqlite3 here)
         run: |
-          if exist server\\package-lock.json (
-            npm ci --prefix server
-          ) else (
-            npm install --prefix server
-          )
+          if exist server\\package-lock.json (npm ci --prefix server) else (npm install --prefix server)
 
-      # ----- Build the React app -----
-      - name: Build React
+      # ── build React ─────────────────────────────────────────────────
+      - name: Build React (client)
         run: npm --prefix client run build
         env:
-          CI: ""   # don't fail on CRA warnings
+          CI: ""                   # don't fail on CRA warnings
 
-      # ----- Rebuild native module for Electron (better-sqlite3) -----
-      # This ensures server/node_modules/better-sqlite3 matches Electron's ABI.
+      # ── prep native modules for Electron (critical for better-sqlite3) ─
+      - name: Install Electron native headers
+        run: npx electron-builder install-app-deps
+
       - name: Rebuild better-sqlite3 for Electron
-        run: |
-          npx electron-rebuild -f -w better-sqlite3 --module-dir server
-        env:
-          # electron-rebuild auto-detects Electron version from devDeps
-          npm_config_build_from_source: "false"
+        run: npx electron-rebuild -f -w better-sqlite3 --module-dir server
 
-      # ----- Package the app (uses root package.json "build" config) -----
-      - name: Package Windows (electron-builder)
-        run: |
-          npx electron-builder --win nsis
+      # ── package Windows installer ───────────────────────────────────
+      - name: Package (electron-builder)
+        run: npx electron-builder --win nsis
         env:
           NODE_ENV: production
-          CI: ""   # keep CRA warnings from breaking anything if builder triggers a rebuild
+          CI: ""                   # just in case builder triggers a build step
 
-      # ----- Upload the installer (.exe) -----
+      - name: List dist output
+        run: dir dist
+
+      # ── upload the .exe artifact ────────────────────────────────────
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
@@ -79,3 +74,4 @@ jobs:
           path: |
             dist\*Setup*.exe
             dist\*.exe
+          if-no-files-found: warn
