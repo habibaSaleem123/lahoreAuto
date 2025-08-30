@@ -28,7 +28,7 @@
       "buildResources": "assets"
     },
     "win":  { "target": ["nsis"], "icon": "assets/icon.ico" },
-     "publish": "never",
+   
     "npmRebuild": true
   },
   "devDependencies": {
