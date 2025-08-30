@@ -11,7 +11,7 @@
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\" \"npm:dev:electron\"",
     "build:react": "npm --prefix client run build",
     "pack": "npm run build:react && cross-env NODE_ENV=production electron-builder --dir",
-    "dist": "npm run build:react && cross-env NODE_ENV=production electron-builder"
+    "dist": "npm run build:react && cross-env NODE_ENV=production electron-builder --publish=never"
   },
   "build": {
     "appId": "com.lahoreauto.traders",
@@ -28,6 +28,7 @@
       "buildResources": "assets"
     },
     "win":  { "target": ["nsis"], "icon": "assets/icon.ico" },
+     "publish": "never",
     "npmRebuild": true
   },
   "devDependencies": {
