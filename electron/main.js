@@ -1,12 +1,7 @@
+// electron/main.js
 const { app, BrowserWindow, shell } = require('electron');
 const path = require('path');
 const isDev = !app.isPackaged;
-
-function startServer() {
-  process.env.NODE_ENV = isDev ? 'development' : 'production';
-  process.env.APP_DATA_DIR = app.getPath('userData');
-  if (!isDev) require(path.join(__dirname, '..', 'server', 'server.js'));
-}
 
 async function createWindow() {
   const win = new BrowserWindow({
@@ -24,9 +19,17 @@ async function createWindow() {
       nodeIntegration: false
     }
   });
-  await win.loadURL(isDev ? 'http://localhost:3000' : 'http://localhost:5000');
+
+  if (isDev) {
+    await win.loadURL('http://localhost:3000');
+  } else {
+    // open the built React bundle
+    const indexHtml = path.join(__dirname, '..', 'client', 'build', 'index.html');
+    await win.loadFile(indexHtml);
+  }
+
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
 }
 
-app.whenReady().then(() => { startServer(); createWindow(); });
+app.whenReady().then(() => { createWindow(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
