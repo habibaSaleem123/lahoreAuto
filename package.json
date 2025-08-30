@@ -1,6 +1,8 @@
 {
   "name": "lahore-auto-traders",
   "version": "1.0.0",
+  "description": "Lahore Auto Traders desktop app",
+  "author": "Your Name",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -18,7 +20,6 @@
     "productName": "Lahore Auto Traders",
     "files": [
       "electron/**/*",
-      "server/**/*",
       "client/build/**/*",
       "package.json"
     ],
@@ -27,15 +28,20 @@
     "directories": {
       "buildResources": "assets"
     },
-    "win":  { "target": ["nsis"], "icon": "assets/icon.ico" },
-   
-    "npmRebuild": true
+    "win": {
+      "target": ["nsis"],
+      "icon": "assets/icon.ico"
+    },
+    "npmRebuild": true,
+    "extraMetadata": {
+      "main": "electron/main.js"
+    }
   },
   "devDependencies": {
     "concurrently": "^9.0.0",
     "cross-env": "^7.0.3",
-    "electron": "^31.0.0",
-    "electron-builder": "^24.13.3",
+    "electron": "31.3.0",
+    "electron-builder": "26.0.12",
     "wait-on": "^7.2.0"
   }
 }
