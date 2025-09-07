@@ -5,7 +5,7 @@ const session = require('express-session');
 const path = require('path');
 const fs = require('fs');
 
-// Load env from server/.env (so PORT works in dev)
+// Load env from server/.env in dev
 require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const {
@@ -49,21 +49,23 @@ if (!isProd) {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// IMPORTANT: cookies must not be "secure" on HTTP localhost
+const secureCookie = process.env.COOKIE_SECURE === '1'; // default false
 app.use(
   session({
     secret: process.env.SESSION_SECRET || 'yourSecretKey',
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: isProd,
+      secure: secureCookie,   // false for local HTTP
       httpOnly: true,
-      sameSite: 'lax',
+      sameSite: 'lax',        // same-origin -> OK
     },
   })
 );
 
 // ─────────────────────────────────────────────
-// File uploads (use APP_DATA_DIR in packaged app)
+/** Writable dirs (DB/uploads) under APP_DATA_DIR in packaged app */
 // ─────────────────────────────────────────────
 const writableRoot = process.env.APP_DATA_DIR || __dirname;
 const uploadsRoot = path.join(writableRoot, 'uploads');
@@ -73,7 +75,7 @@ const receiptsDir = path.join(uploadsRoot, 'receipts');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
-// Legacy redirect support (kept before static)
+// Legacy redirects
 app.use('/receipts', (req, res) =>
   res.redirect(301, `/uploads/receipts${req.path}`)
 );
@@ -81,11 +83,11 @@ app.use('/payments', (req, res) =>
   res.redirect(301, `/uploads/payments${req.path}`)
 );
 
-// Serve actual uploads
+// Serve uploads
 app.use('/uploads', express.static(uploadsRoot));
 
 // ─────────────────────────────────────────────
-// API routes
+/** API routes */
 // ─────────────────────────────────────────────
 app.use('/api', require('./routes/authRoutes'));
 app.use('/api', require('./routes/customerRoutes'));
@@ -140,23 +142,19 @@ if (!isProd) {
 }
 
 // ─────────────────────────────────────────────
-// React build (served in prod or when build exists)
+/** Serve React build (prod) */
 // ─────────────────────────────────────────────
-const buildPath = path.resolve(__dirname, '..', 'client', 'build');
+const buildPath = isProd
+  ? path.resolve(process.resourcesPath, 'client', 'build')  // from extraResources
+  : path.resolve(__dirname, '..', 'client', 'build');
+
 if (fs.existsSync(buildPath)) {
-  // Serve static assets first so they don't hit the SPA fallback
+  // Serve static assets first
   app.use(express.static(buildPath));
 
-  // SPA fallback AFTER API/asset routes — pathless middleware (avoids path-to-regexp)
-  app.use((req, res, next) => {
-    // Don't hijack API or uploads
-    if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next();
-
-    // Only for GET requests that want HTML
-    if (req.method !== 'GET') return next();
-    const accept = req.headers.accept || '';
-    if (!accept.includes('text/html') && !accept.includes('*/*')) return next();
-
+  // ✅ Express-5 safe SPA fallback (no '*')
+  // Any GET that is not /api/* or /uploads/* returns index.html
+  app.get(/^\/(?!api|uploads)(.*)$/, (req, res) => {
     res.sendFile(path.join(buildPath, 'index.html'));
   });
 } else {
@@ -180,7 +178,7 @@ app.use((err, req, res, next) => {
 /* eslint-enable no-unused-vars */
 
 app.listen(PORT, () => {
-  console.log(`✅ Server running on http://localhost:${PORT}`);
+  console.log(`✅ Server running on http://127.0.0.1:${PORT}`);
   console.log('📂 Serving uploads at /uploads (dir: ' + uploadsRoot + ')');
   if (fs.existsSync(buildPath)) console.log('🖼️ React build served from', buildPath);
 });

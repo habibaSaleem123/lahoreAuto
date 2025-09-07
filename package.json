@@ -11,7 +11,7 @@
     "dev:server": "cross-env NODE_ENV=development node server/server.js",
     "dev:electron": "wait-on tcp:3000 tcp:5000 && electron .",
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\" \"npm:dev:electron\"",
-    "build:react": "npm --prefix client run build",
+    "build:react": "cross-env PUBLIC_URL=. npm --prefix client run build",
     "pack": "npm run build:react && cross-env NODE_ENV=production electron-builder --dir",
     "dist": "npm run build:react && cross-env NODE_ENV=production electron-builder --publish=never"
   },
@@ -20,26 +20,21 @@
     "productName": "Lahore Auto Traders",
     "files": [
       "electron/**/*",
-      "client/build/**/*",
       "package.json"
     ],
-    "asar": true,
-    "asarUnpack": [
-      "**/*.node"
+    "extraResources": [
+      { "from": "client/build", "to": "client/build" },
+      { "from": "server", "to": "server" }
     ],
-    "directories": {
-      "buildResources": "assets"
-    },
+    "asar": true,
+    "asarUnpack": ["**/*.node"],
+    "directories": { "buildResources": "assets" },
     "win": {
-      "target": [
-        "nsis"
-      ],
+      "target": ["nsis"],
       "icon": "assets/icon.ico"
     },
     "npmRebuild": true,
-    "extraMetadata": {
-      "main": "electron/main.js"
-    }
+    "extraMetadata": { "main": "electron/main.js" }
   },
   "devDependencies": {
     "concurrently": "^9.0.0",
@@ -48,7 +43,5 @@
     "electron-builder": "26.0.12",
     "wait-on": "^7.2.0"
   },
-  "dependencies": {
-    "framer-motion": "^12.23.12"
-  }
+  "dependencies": {}
 }
