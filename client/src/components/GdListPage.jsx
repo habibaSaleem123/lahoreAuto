@@ -16,7 +16,23 @@ const GdListPage = () => {
   const [alert, setAlert] = useState({ show: false, type: '', message: '' });
   const [saveModal, setSaveModal] = useState({ show: false, type: '', message: '' });
 
+  // Server default is 0.35, keep UI in sync:
   const taxRate = 0.35;
+
+  // ✅ Numeric fields that should display with 2 decimals
+  const DECIMAL_FIELDS = new Set([
+    'quantity', 'unit_price', 'total_value', 'total_custom_value', 'invoice_value', 'unit_cost',
+    'gross_weight', 'custom_duty', 'sales_tax', 'gst', 'ast', 'income_tax', 'acd',
+    'regulatory_duty', 'landed_cost', 'retail_price', 'per_unit_sales_tax', 'mrp',
+    'cost', 'gross_margin', 'sale_price'
+  ]);
+
+  // ✅ Safe 2-dec formatter for UI display
+  const to2 = (v) => {
+    if (v === '' || v === null || v === undefined) return '';
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toFixed(2) : v;
+  };
 
   useEffect(() => { fetchData(); }, []);
 
@@ -53,18 +69,25 @@ const GdListPage = () => {
     const perUnitSalesTax = totalTax / quantity;
     const retailPrice = perUnitSalesTax / 0.18;
     const mrp = retailPrice + perUnitSalesTax;
+
     const cost = Number(item.cost || 0);
     const grossMargin = retailPrice - cost;
+
     const incomeTax = Number(item.income_tax || 0);
-    const perUnitProfit = (incomeTax / taxRate) / quantity;
-    const salePrice = cost + perUnitProfit;
+    const perUnitProfit = (taxRate > 0 ? (incomeTax / taxRate) : 0) / quantity;
+    let salePrice = cost + perUnitProfit;
+
+    // ✅ Over-retail fallback: cost + 0.9 * (retail - cost)
+    if (salePrice > retailPrice) {
+      salePrice = cost + 0.9 * (retailPrice - cost);
+    }
 
     return {
-      retail_price: retailPrice.toFixed(2),
-      per_unit_sales_tax: perUnitSalesTax.toFixed(2),
-      mrp: mrp.toFixed(2),
-      gross_margin: grossMargin.toFixed(2),
-      sale_price: salePrice.toFixed(2)
+      retail_price: to2(retailPrice),
+      per_unit_sales_tax: to2(perUnitSalesTax),
+      mrp: to2(mrp),
+      gross_margin: to2(grossMargin),
+      sale_price: to2(salePrice)
     };
   };
 
@@ -80,7 +103,7 @@ const GdListPage = () => {
     try {
       setSavingIndexes(prev => ({ ...prev, [index]: true }));
       const updatedItem = gdDetails.items[index];
-      const payload = { items: [updatedItem] };
+      const payload = { items: [updatedItem], taxRate }; // send taxRate for server-side consistency
       await axios.put(`http://localhost:5000/api/gd-items/${selectedGdId}`, payload);
 
       // Refresh details after save
@@ -105,10 +128,10 @@ const GdListPage = () => {
   };
 
   const editableFields = [
-    "description", "hs_code", "quantity", "unit_price", "total_value", "total_custom_value",
-    "invoice_value", "unit_cost", "unit", "gross_weight", "custom_duty", "sales_tax", "gst",
-    "ast", "income_tax", "acd", "regulatory_duty", "landed_cost", "retail_price",
-    "per_unit_sales_tax", "mrp", "cost", "gross_margin", "sale_price"
+    'description', 'hs_code', 'quantity', 'unit_price', 'total_value', 'total_custom_value',
+    'invoice_value', 'unit_cost', 'unit', 'gross_weight', 'custom_duty', 'sales_tax', 'gst',
+    'ast', 'income_tax', 'acd', 'regulatory_duty', 'landed_cost', 'retail_price',
+    'per_unit_sales_tax', 'mrp', 'cost', 'gross_margin', 'sale_price'
   ];
 
   return (
@@ -238,7 +261,7 @@ const GdListPage = () => {
                 <div className="mb-4 small muted">
                   <strong className="muted-strong">Date:</strong> {new Date(gdDetails.gd.gd_date).toLocaleDateString()} &nbsp;|&nbsp;
                   <strong className="muted-strong">Supplier:</strong> {gdDetails.gd.supplier_name} &nbsp;|&nbsp;
-                  <strong className="muted-strong">Avg Landed Cost:</strong> Rs {gdDetails.gd.landed_cost}
+                  <strong className="muted-strong">Avg Landed Cost:</strong> Rs {to2(gdDetails.gd.landed_cost)}
                 </div>
 
                 <Form.Control
@@ -276,7 +299,7 @@ const GdListPage = () => {
                                         <td>
                                           <Form.Control
                                             name={field}
-                                            value={item[field] || ''}
+                                            value={DECIMAL_FIELDS.has(field) ? to2(item[field]) : (item[field] ?? '')}
                                             onChange={(e) => handleItemChange(index, e)}
                                             type="text"
                                             step="any"
@@ -315,7 +338,7 @@ const GdListPage = () => {
                   <ListGroup variant="flush">
                     {gdDetails.charges.map((c, i) => (
                       <ListGroup.Item className="list-dark" key={i}>
-                        <strong>{c.charge_type}</strong>: Rs {c.charge_amount}
+                        <strong>{c.charge_type}</strong>: Rs {to2(c.charge_amount)}
                       </ListGroup.Item>
                     ))}
                   </ListGroup>
@@ -358,7 +381,7 @@ const GdListPage = () => {
           --glass-strong: rgba(255,255,255,0.12);
           --border: rgba(255, 76, 76, 0.35);
           --muted: rgba(255,255,255,0.7);
-          --text: #f5f5f5;
+          --text:rgb(16, 8, 8);
         }
 
         .gd-page{
@@ -435,7 +458,7 @@ const GdListPage = () => {
         .btn-ghost{
           background: rgba(255,255,255,0.06);
           border: 1px solid var(--border);
-          color: black;
+          color: var(--text);
         }
         .btn-ghost:hover{
           background: rgba(255,76,76,0.15);
@@ -482,12 +505,8 @@ const GdListPage = () => {
           color: white !important;
           border-bottom: 1px solid var(--border);
         }
-          .modal-head {
-          color: white !important;
-        }
-        .modal-head .modal-title {
-          color: white !important;
-        }
+        .modal-head { color: white !important; }
+        .modal-head .modal-title { color: white !important; }
 
         .modal-feedback{
           background: var(--bg);

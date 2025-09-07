@@ -19,6 +19,7 @@ const app = express();
 const isProd = process.env.NODE_ENV === 'production';
 const PORT = process.env.PORT || 5000;
 
+app.disable('x-powered-by');
 if (isProd) app.set('trust proxy', 1);
 
 // ─────────────────────────────────────────────
@@ -62,10 +63,7 @@ app.use(
 );
 
 // ─────────────────────────────────────────────
-/**
- * File uploads setup
- * Use APP_DATA_DIR when packaged (writable userData); fallback to server dir in dev.
- */
+// File uploads (use APP_DATA_DIR in packaged app)
 // ─────────────────────────────────────────────
 const writableRoot = process.env.APP_DATA_DIR || __dirname;
 const uploadsRoot = path.join(writableRoot, 'uploads');
@@ -109,6 +107,7 @@ app.get('/health', (_, res) => {
     ok = false;
     info = { error: String(e?.message || e) };
   }
+  res.setHeader('Cache-Control', 'no-store');
   res.status(ok ? 200 : 500).json({ ok, db: info, serverTime: new Date().toISOString() });
 });
 
@@ -143,12 +142,21 @@ if (!isProd) {
 // ─────────────────────────────────────────────
 // React build (served in prod or when build exists)
 // ─────────────────────────────────────────────
-const buildPath = path.join(__dirname, '..', 'client', 'build');
+const buildPath = path.resolve(__dirname, '..', 'client', 'build');
 if (fs.existsSync(buildPath)) {
+  // Serve static assets first so they don't hit the SPA fallback
   app.use(express.static(buildPath));
-  // SPA fallback AFTER API/asset routes
-  app.get('*', (req, res, next) => {
+
+  // SPA fallback AFTER API/asset routes — pathless middleware (avoids path-to-regexp)
+  app.use((req, res, next) => {
+    // Don't hijack API or uploads
     if (req.path.startsWith('/api') || req.path.startsWith('/uploads')) return next();
+
+    // Only for GET requests that want HTML
+    if (req.method !== 'GET') return next();
+    const accept = req.headers.accept || '';
+    if (!accept.includes('text/html') && !accept.includes('*/*')) return next();
+
     res.sendFile(path.join(buildPath, 'index.html'));
   });
 } else {

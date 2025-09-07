@@ -35,7 +35,7 @@ export default function GdEntryForm() {
   const fileInputRef = useRef(null);
   const formRef = useRef(null);
 
-  // Keyboard navigation scoped to this form
+  // Keyboard navigation scoped to this form (Enter logic improved)
   useEffect(() => {
     const form = formRef.current;
     if (!form) return;
@@ -47,10 +47,35 @@ export default function GdEntryForm() {
       const index = inputs.indexOf(e.target);
       if (index === -1) return;
 
-      // ENTER → next
+      // ENTER behavior
       if (e.key === 'Enter') {
-        e.preventDefault();
-        if (index < inputs.length - 1) inputs[index + 1].focus();
+        const isTextArea = e.target.tagName === 'TEXTAREA';
+        const isLast = index === inputs.length - 1;
+
+        // Ctrl/Cmd + Enter → submit anywhere
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          if (typeof form.requestSubmit === 'function') {
+            form.requestSubmit();
+          } else {
+            // Fallback for older browsers
+            form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+          }
+          return;
+        }
+
+        // Shift+Enter or Enter inside textarea → allow newline (no preventDefault)
+        if (e.shiftKey || isTextArea) return;
+
+        // Not last field → move focus to next and DO NOT submit
+        if (!isLast) {
+          e.preventDefault();
+          inputs[index + 1].focus();
+          return;
+        }
+
+        // Last field → allow native submit (no preventDefault)
+        return;
       }
 
       // UP → previous
@@ -166,7 +191,8 @@ export default function GdEntryForm() {
     );
 
     try {
-      const res = await axios.post('http://localhost:5000/api/gd-entry', {
+      // Use relative path to work with dev proxy or prod server without CORS issues
+      const res = await axios.post('/api/gd', {
         header,
         items,
         charges: validCharges
@@ -367,15 +393,15 @@ export default function GdEntryForm() {
           --glass: rgba(255,255,255,0.05);
           --border: rgba(255, 76, 76, 0.35);
           --active: rgba(255, 76, 76, 0.20);
-          --text: #eaeaea;
-          --muted: #9aa0a6;
+          --text:rgb(29, 19, 19);
+          --muted:rgb(0, 0, 0);
         }
 
         .gd-container {
           position: relative;
           min-height: 100vh;
           padding: 2rem;
-          color: black;
+          color: var(--text);
           background: var(--bg);
           overflow: hidden;
         }
@@ -399,6 +425,7 @@ export default function GdEntryForm() {
           inset: 0;
           background: radial-gradient(circle at top left, rgba(255,76,76,.08), transparent 70%);
           z-index: 1;
+          pointer-events: none;
         }
 
         .gd-header {
@@ -508,15 +535,17 @@ export default function GdEntryForm() {
           border: 1px solid var(--border);
           color: var(--text);
         }
+
+        /* ✅ Improved contrast vs. forcing black on dark backgrounds */
         .input-dark::placeholder {
-          color: black !important;
-          
-          opacity: 1; /* ensures it doesn't look faded */
+          color: var(--muted) !important;
+          opacity: 1;
         }
         .dark-table tbody td,
         .dark-table tbody th {
-          color: black !important;
+          color: var(--text) !important;
         }
+
         /* Bootstrap overrides for dark background */
         .table > :not(caption) > * > * {
           background-color: transparent;

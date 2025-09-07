@@ -1,23 +1,38 @@
-// server/controllers/gdController.js
 const dbx = require('../config/db'); // { db, get, all, run }
-const { db } = dbx;           // raw better-sqlite3 Database (for transactions)
+const { db } = dbx;                  // raw better-sqlite3 Database (for transactions)
 
-const TAX_RATE = 0.35;
+const DEFAULT_TAX_RATE = 0.35;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Sum sales-tax-like fields safely
 function computeTotalSalesTax(item) {
   return ['sales_tax', 'gst', 'ast']
     .reduce((sum, key) => sum + Number(item[key] || 0), 0);
 }
 
+// Round to 2 decimals and keep it NUMBER (SQLite REAL), not string
+const round2 = (v) => Math.round((Number(v || 0) + Number.EPSILON) * 100) / 100;
+
+// Normalize numeric fields in a row to 2dp (helper for inserts/updates)
+function to2dpRow(row, keys) {
+  const out = { ...row };
+  for (const k of keys) out[k] = round2(out[k]);
+  return out;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Create GD Entry (atomic)
-// POST /api/gd
-// Body: { header: {...}, items: [...], charges: [...] }
+// POST /api/gd-entry   (alias: /api/gd)
+// Body: { header: {...}, items: [...], charges: [...], taxRate?: number }
 // ─────────────────────────────────────────────────────────────────────────────
 exports.createGD = (req, res) => {
   const { header, items = [], charges = [] } = req.body;
+  const taxRate = Number(req.body?.taxRate ?? DEFAULT_TAX_RATE) || DEFAULT_TAX_RATE;
 
-  const createTxn = db.transaction(({ header, items, charges }) => {
+  const createTxn = db.transaction(({ header, items, charges, taxRate }) => {
     // 1) Insert gd_entries
     const stInsertGd = db.prepare(`
       INSERT INTO gd_entries (
@@ -35,7 +50,20 @@ exports.createGD = (req, res) => {
       )
     `);
 
-    const infoGd = stInsertGd.run(header);
+    // Round numeric header fields we care about
+    const header2 = to2dpRow(
+      { ...header },
+      [
+        'invoice_value', 'freight', 'insurance', 'clearing_charges', 'port_charges',
+        'gross_weight', 'net_weight', 'assessed_value', 'exchange_rate', 'total_gd_amount'
+      ]
+    );
+    // Keep count-like integer fields intact
+    if (header2.number_of_packages != null) {
+      header2.number_of_packages = Number(header2.number_of_packages || 0);
+    }
+
+    const infoGd = stInsertGd.run(header2);
     const gdId = infoGd.lastInsertRowid;
 
     // 2) Insert charges (if any)
@@ -50,7 +78,7 @@ exports.createGD = (req, res) => {
       insertManyCharges(charges.map(c => ({
         gd_entry_id: gdId,
         charge_type: c.charge_type,
-        charge_amount: Number(c.charge_amount || 0)
+        charge_amount: round2(c.charge_amount)
       })));
     }
 
@@ -77,34 +105,36 @@ exports.createGD = (req, res) => {
       const totalSalesTax = computeTotalSalesTax(item);
       const perUnitSalesTax = totalSalesTax / quantity;
 
-      const retailPrice = perUnitSalesTax / 0.18; // reverse-calc from 18% tax slice
+      // Reverse out 18% tax slice: retailPrice is the pre-tax retail base
+      const retailPrice = perUnitSalesTax / 0.18;
       const mrp = retailPrice + perUnitSalesTax;
       const grossMargin = retailPrice - cost;
 
       const incomeTax = Number(item.income_tax || 0);
-      const perUnitProfit = (incomeTax / TAX_RATE) / quantity;
+      const perUnitProfit = (taxRate > 0 ? (incomeTax / taxRate) : 0) / quantity;
       let salePrice = cost + perUnitProfit;
 
-      // Cap sale price if it exceeds retail price → keep retailer margin
+      // ✅ Over-retail fallback: give retailer 10% of (retail - cost) margin
       if (salePrice > retailPrice) {
-        salePrice = retailPrice * 0.9;
+        salePrice = cost + 0.9 * (retailPrice - cost);
       }
 
       const item_number = `${String(header.gd_number || '').replace(/\s+/g, '')}-${item.hs_code}`;
       const item_id = `${String(header.gd_number || '').replace(/\s+/g, '')}-${item.hs_code}-${index + 1}`;
 
+      // Round only at the end (before persistence)
       return {
         ...item,
         gd_entry_id: gdId,
         item_id,
         item_number,
-        landed_cost: cost,
-        retail_price: retailPrice,
-        per_unit_sales_tax: perUnitSalesTax,
-        mrp,
-        cost,
-        gross_margin: grossMargin,
-        sale_price: salePrice
+        landed_cost: round2(cost),
+        retail_price: round2(retailPrice),
+        per_unit_sales_tax: round2(perUnitSalesTax),
+        mrp: round2(mrp),
+        cost: round2(cost),
+        gross_margin: round2(grossMargin),
+        sale_price: round2(salePrice),
       };
     });
 
@@ -128,30 +158,18 @@ exports.createGD = (req, res) => {
 
       const insertManyItems = db.transaction((rows) => {
         for (const row of rows) {
-          // Normalize numerics to numbers so SQLite stores REAL/INTEGER
+          // Normalize numerics to two decimals (except quantity which should remain numeric/int)
+          const numericKeys2dp = [
+            'unit_price', 'total_value', 'total_custom_value', 'invoice_value', 'unit_cost',
+            'gross_weight', 'custom_duty', 'sales_tax', 'gst', 'ast', 'income_tax', 'acd',
+            'regulatory_duty', 'landed_cost', 'retail_price', 'per_unit_sales_tax', 'mrp',
+            'cost', 'gross_margin', 'sale_price'
+          ];
+          const normalized = to2dpRow(row, numericKeys2dp);
           stItem.run({
-            ...row,
+            ...normalized,
+            gd_entry_id: normalized.gd_entry_id,
             quantity: Number(row.quantity || 0),
-            unit_price: Number(row.unit_price || 0),
-            total_value: Number(row.total_value || 0),
-            total_custom_value: Number(row.total_custom_value || 0),
-            invoice_value: Number(row.invoice_value || 0),
-            unit_cost: Number(row.unit_cost || 0),
-            gross_weight: Number(row.gross_weight || 0),
-            custom_duty: Number(row.custom_duty || 0),
-            sales_tax: Number(row.sales_tax || 0),
-            gst: Number(row.gst || 0),
-            ast: Number(row.ast || 0),
-            income_tax: Number(row.income_tax || 0),
-            acd: Number(row.acd || 0),
-            regulatory_duty: Number(row.regulatory_duty || 0),
-            landed_cost: Number(row.landed_cost || 0),
-            retail_price: Number(row.retail_price || 0),
-            per_unit_sales_tax: Number(row.per_unit_sales_tax || 0),
-            mrp: Number(row.mrp || 0),
-            cost: Number(row.cost || 0),
-            gross_margin: Number(row.gross_margin || 0),
-            sale_price: Number(row.sale_price || 0),
           });
         }
       });
@@ -162,7 +180,7 @@ exports.createGD = (req, res) => {
     // 5) Update gd_entries.landed_cost (average)
     const totalLanded = updatedItems.reduce((sum, it) => sum + Number(it.landed_cost || 0) * Number(it.quantity || 0), 0);
     const totalQty = updatedItems.reduce((sum, it) => sum + Number(it.quantity || 0), 0);
-    const avgLandedCost = totalQty ? (totalLanded / totalQty) : 0;
+    const avgLandedCost = totalQty ? round2(totalLanded / totalQty) : 0;
 
     db.prepare(`UPDATE gd_entries SET landed_cost = @avg WHERE id = @id`)
       .run({ avg: avgLandedCost, id: gdId });
@@ -171,7 +189,7 @@ exports.createGD = (req, res) => {
   });
 
   try {
-    const result = createTxn({ header, items, charges });
+    const result = createTxn({ header, items, charges, taxRate });
     res.status(201).json({ message: 'GD Entry Created', gdId: result.gdId, landed_cost: result.avgLandedCost });
   } catch (err) {
     console.error('createGD error:', err);
@@ -181,14 +199,15 @@ exports.createGD = (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Update GD Items (recompute costs & prices, then update avg landed)
-// PUT /api/gd/:id/items
-// Body: { items: [...] }
+// PUT /api/gd-items/:id
+// Body: { items: [...], taxRate?: number }
 // ─────────────────────────────────────────────────────────────────────────────
 exports.updateGdItems = (req, res) => {
   const { id } = req.params;
   const { items = [] } = req.body;
+  const taxRate = Number(req.body?.taxRate ?? DEFAULT_TAX_RATE) || DEFAULT_TAX_RATE;
 
-  const updateTxn = db.transaction(({ id, items }) => {
+  const updateTxn = db.transaction(({ id, items, taxRate }) => {
     const charges = dbx.all(
       'SELECT charge_amount FROM gd_charges WHERE gd_entry_id = @id',
       { id: Number(id) }
@@ -226,9 +245,15 @@ exports.updateGdItems = (req, res) => {
       const grossMargin = retailPrice - cost;
 
       const incomeTax = Number(item.income_tax || 0);
-      const perUnitProfit = (incomeTax / TAX_RATE) / quantity;
-      const salePrice = cost + perUnitProfit;
+      const perUnitProfit = (taxRate > 0 ? (incomeTax / taxRate) : 0) / quantity;
+      let salePrice = cost + perUnitProfit;
 
+      // ✅ Over-retail fallback: give retailer 10% of (retail - cost) margin
+      if (salePrice > retailPrice) {
+        salePrice = cost + 0.9 * (retailPrice - cost);
+      }
+
+      // Round only at the end (before persistence)
       stUpdate.run({
         gd_entry_id: Number(id),
         item_id: item.item_id,
@@ -236,28 +261,31 @@ exports.updateGdItems = (req, res) => {
         description: item.description,
         hs_code: item.hs_code,
         quantity: Number(item.quantity || 0),
-        unit_price: Number(item.unit_price || 0),
-        total_value: Number(item.total_value || 0),
-        total_custom_value: Number(item.total_custom_value || 0),
-        invoice_value: Number(item.invoice_value || 0),
-        unit_cost: Number(item.unit_cost || 0),
-        unit: item.unit,
-        gross_weight: Number(item.gross_weight || 0),
-        custom_duty: Number(item.custom_duty || 0),
-        sales_tax: Number(item.sales_tax || 0),
-        gst: Number(item.gst || 0),
-        ast: Number(item.ast || 0),
-        income_tax: Number(item.income_tax || 0),
-        acd: Number(item.acd || 0),
-        regulatory_duty: Number(item.regulatory_duty || 0),
 
-        landed_cost: Number(cost),
-        retail_price: Number(retailPrice),
-        per_unit_sales_tax: Number(perUnitSalesTax),
-        mrp: Number(mrp),
-        cost: Number(cost),
-        gross_margin: Number(grossMargin),
-        sale_price: Number(salePrice),
+        unit_price: round2(item.unit_price),
+        total_value: round2(item.total_value),
+        total_custom_value: round2(item.total_custom_value),
+        invoice_value: round2(item.invoice_value),
+        unit_cost: round2(item.unit_cost),
+
+        unit: item.unit,
+        gross_weight: round2(item.gross_weight),
+
+        custom_duty: round2(item.custom_duty),
+        sales_tax: round2(item.sales_tax),
+        gst: round2(item.gst),
+        ast: round2(item.ast),
+        income_tax: round2(item.income_tax),
+        acd: round2(item.acd),
+        regulatory_duty: round2(item.regulatory_duty),
+
+        landed_cost: round2(cost),
+        retail_price: round2(retailPrice),
+        per_unit_sales_tax: round2(perUnitSalesTax),
+        mrp: round2(mrp),
+        cost: round2(cost),
+        gross_margin: round2(grossMargin),
+        sale_price: round2(salePrice),
       });
     }
 
@@ -268,7 +296,7 @@ exports.updateGdItems = (req, res) => {
 
     const totalLanded = updated.reduce((sum, it) => sum + Number(it.landed_cost || 0) * Number(it.quantity || 0), 0);
     const totalQty = updated.reduce((sum, it) => sum + Number(it.quantity || 0), 0);
-    const avgLandedCost = totalQty ? (totalLanded / totalQty) : 0;
+    const avgLandedCost = totalQty ? round2(totalLanded / totalQty) : 0;
 
     db.prepare('UPDATE gd_entries SET landed_cost = @avg WHERE id = @id')
       .run({ avg: avgLandedCost, id: Number(id) });
@@ -277,7 +305,7 @@ exports.updateGdItems = (req, res) => {
   });
 
   try {
-    const result = updateTxn({ id, items });
+    const result = updateTxn({ id, items, taxRate });
     res.json({ message: 'Items updated', landed_cost: result.avgLandedCost });
   } catch (err) {
     console.error('updateGdItems error:', err);
@@ -287,6 +315,7 @@ exports.updateGdItems = (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/gd/filter?gd_number=&gd_date=&supplier_name=&hs_code=
+// (Note: exposed by routes as /api/gd-list and /api/gds)
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getFilteredGds = (req, res) => {
   const { gd_number, gd_date, supplier_name, hs_code } = req.query;
@@ -330,7 +359,7 @@ exports.getFilteredGds = (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/gd/:id (details)
+/** GET /api/gd-details/:id (details) */
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getGdDetails = (req, res) => {
   const { id } = req.params;
@@ -382,7 +411,7 @@ exports.deleteItem = (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/gd/:id/items (items usable for sales/inventory view)
+// GET /api/gds/:id/items (items usable for sales/inventory view)
 // ─────────────────────────────────────────────────────────────────────────────
 exports.getItemsByGd = (req, res) => {
   try {
