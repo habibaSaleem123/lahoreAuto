@@ -1,25 +1,24 @@
 {
-  "name": "server",
+  "name": "lat-server",
   "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js",
-    "dev": "nodemon server.js"
-  },
-  "keywords": [],
-  "author": "",
+  "private": true,
+  "type": "commonjs",
+  "main": "server.js",
+  "description": "Local API for Lahore Auto Traders (packaged with Electron)",
   "license": "ISC",
-  "description": "",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "health": "node -e \"require('http').get('http://127.0.0.1:5000/health',r=>{let d='';r.on('data',c=>d+=c);r.on('end',()=>console.log(d))}).on('error',e=>{console.error(e);process.exit(1)})\""
+  },
   "dependencies": {
     "better-sqlite3": "^12.2.0",
-    "body-parser": "^2.2.0",
+    "better-sqlite3-session-store": "^0.1.0",
     "cors": "^2.8.5",
-    "dotenv": "^17.0.1",
+    "dotenv": "^16.6.1",
     "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "express-session": "^1.18.2",
-    "mongoose": "^8.16.1",
     "multer": "^2.0.1",
     "uuid": "^11.1.0",
     "xlsx": "^0.18.5"
