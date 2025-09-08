@@ -11,6 +11,10 @@ jobs:
     defaults:
       run:
         shell: pwsh
+    env:
+      # Ensure devDependencies (cross-env, electron-builder, electron-rebuild) get installed
+      NODE_ENV: development
+      NPM_CONFIG_PRODUCTION: "false"
 
     steps:
       - name: Checkout
@@ -31,39 +35,34 @@ jobs:
           node -v | Tee-Object -FilePath build-log.txt
           npm -v  | Tee-Object -FilePath build-log.txt -Append
 
-      # Root deps (includes electron-builder as devDep)
-      - name: Install root deps (ci → fallback)
+      - name: Install root deps (ci → fallback) incl. dev
         run: |
-          npm ci 2>&1 | Tee-Object -FilePath build-log.txt -Append
+          npm ci --include=dev 2>&1 | Tee-Object -FilePath build-log.txt -Append
           if ($LASTEXITCODE -ne 0) {
-            "npm ci failed; running npm install..." | Tee-Object -FilePath build-log.txt -Append
-            npm install 2>&1 | Tee-Object -FilePath build-log.txt -Append
+            "npm ci failed; running npm install --include=dev..." | Tee-Object -FilePath build-log.txt -Append
+            npm install --include=dev 2>&1 | Tee-Object -FilePath build-log.txt -Append
           }
 
-      - name: Install client deps (ci → fallback)
+      - name: Install client deps (ci → fallback) incl. dev
         run: |
-          npm ci --prefix client 2>&1 | Tee-Object -FilePath build-log.txt -Append
+          npm ci --prefix client --include=dev 2>&1 | Tee-Object -FilePath build-log.txt -Append
           if ($LASTEXITCODE -ne 0) {
-            "npm ci (client) failed; running npm install..." | Tee-Object -FilePath build-log.txt -Append
-            npm install --prefix client 2>&1 | Tee-Object -FilePath build-log.txt -Append
+            "npm ci (client) failed; running npm install --include=dev..." | Tee-Object -FilePath build-log.txt -Append
+            npm install --prefix client --include=dev 2>&1 | Tee-Object -FilePath build-log.txt -Append
           }
 
-      - name: Install server deps (ci → fallback)
+      - name: Install server deps (ci → fallback) incl. dev
         run: |
-          npm ci --prefix server 2>&1 | Tee-Object -FilePath build-log.txt -Append
+          npm ci --prefix server --include=dev 2>&1 | Tee-Object -FilePath build-log.txt -Append
           if ($LASTEXITCODE -ne 0) {
-            "npm ci (server) failed; running npm install..." | Tee-Object -FilePath build-log.txt -Append
-            npm install --prefix server 2>&1 | Tee-Object -FilePath build-log.txt -Append
+            "npm ci (server) failed; running npm install --include=dev..." | Tee-Object -FilePath build-log.txt -Append
+            npm install --prefix server --include=dev 2>&1 | Tee-Object -FilePath build-log.txt -Append
           }
 
-      # Run the predist chain explicitly so logs are clear:
-      #  - installs server deps against Electron headers
-      #  - rebuilds better-sqlite3 for Electron
-      #  - builds React
-      #  - runs electron-builder install-app-deps
-      - name: Prepare app (predist)
+      # Prepare app (targets Electron headers, rebuilds native, builds React, installs app-deps)
+      - name: predist
         env:
-          CI: "" # CRA: avoid treating warnings as errors
+          CI: ""  # CRA: don’t treat warnings as errors
         run: |
           npm run predist 2>&1 | Tee-Object -FilePath build-log.txt -Append
 
@@ -71,9 +70,9 @@ jobs:
         env:
           ELECTRON_BUILDER_LOG_LEVEL: debug
           DEBUG: electron-builder
-          CSC_IDENTITY_AUTO: "false"   # no code-signing on CI by default
-          CI: ""                       # CRA: avoid warnings-as-errors
+          CSC_IDENTITY_AUTO: "false"
           NODE_ENV: production
+          CI: ""
         run: |
           npm run dist 2>&1 | Tee-Object -FilePath build-log.txt -Append
 
