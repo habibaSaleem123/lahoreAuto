@@ -31,6 +31,7 @@ jobs:
           node -v | Tee-Object -FilePath build-log.txt
           npm -v  | Tee-Object -FilePath build-log.txt -Append
 
+      # Root deps (includes electron-builder as devDep)
       - name: Install root deps (ci → fallback)
         run: |
           npm ci 2>&1 | Tee-Object -FilePath build-log.txt -Append
@@ -55,12 +56,23 @@ jobs:
             npm install --prefix server 2>&1 | Tee-Object -FilePath build-log.txt -Append
           }
 
-      # Your "dist" script already runs "build:react" + electron-builder
+      # Run the predist chain explicitly so logs are clear:
+      #  - installs server deps against Electron headers
+      #  - rebuilds better-sqlite3 for Electron
+      #  - builds React
+      #  - runs electron-builder install-app-deps
+      - name: Prepare app (predist)
+        env:
+          CI: "" # CRA: avoid treating warnings as errors
+        run: |
+          npm run predist 2>&1 | Tee-Object -FilePath build-log.txt -Append
+
       - name: Build and package (electron-builder, verbose)
         env:
           ELECTRON_BUILDER_LOG_LEVEL: debug
           DEBUG: electron-builder
-          CI: ""   # prevents CRA warnings-as-errors
+          CSC_IDENTITY_AUTO: "false"   # no code-signing on CI by default
+          CI: ""                       # CRA: avoid warnings-as-errors
           NODE_ENV: production
         run: |
           npm run dist 2>&1 | Tee-Object -FilePath build-log.txt -Append
