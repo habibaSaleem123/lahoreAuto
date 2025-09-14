@@ -145,9 +145,29 @@ function startApi(port) {
   console.log(`[MAIN] Starting API server on port ${port}`);
   console.log(`[MAIN] Server root: ${serverRoot}`);
   console.log(`[MAIN] Log file: ${logFile}`);
+  console.log(`[MAIN] Platform: ${process.platform}`);
+  console.log(`[MAIN] Architecture: ${process.arch}`);
+  console.log(`[MAIN] Node version: ${process.version}`);
 
+  // Check if server files exist
   if (!fs.existsSync(serverEntry)) {
     throw new Error(`Server entry point not found: ${serverEntry}`);
+  }
+
+  // Check for node_modules on Windows
+  const nodeModulesPath = path.join(serverRoot, 'node_modules');
+  if (!fs.existsSync(nodeModulesPath)) {
+    console.warn(`[MAIN] Warning: node_modules not found at ${nodeModulesPath}`);
+  }
+
+  // Check for SQLite binary specifically on Windows
+  if (process.platform === 'win32') {
+    const sqliteBinaryPath = path.join(nodeModulesPath, 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');
+    if (!fs.existsSync(sqliteBinaryPath)) {
+      console.error(`[MAIN] Critical: SQLite binary missing at ${sqliteBinaryPath}`);
+    } else {
+      console.log(`[MAIN] SQLite binary found: ${sqliteBinaryPath}`);
+    }
   }
 
   apiProc = fork(serverEntry, [], {
