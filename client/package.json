@@ -2,7 +2,7 @@
   "name": "client",
   "version": "0.1.0",
   "private": true,
-  "homepage": "./",
+ 
   "dependencies": {
     "@google/model-viewer": "^4.1.0",
     "@testing-library/dom": "^10.4.0",

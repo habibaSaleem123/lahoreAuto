@@ -1,5 +1,5 @@
 // electron/main.js
-const { app, BrowserWindow, shell, Menu } = require('electron');
+const { app, BrowserWindow, shell, Menu, session } = require('electron');
 const path = require('path');
 const { fork } = require('child_process');
 const http = require('http');
@@ -26,7 +26,8 @@ function setEditMenu() {
   const isMac = process.platform === 'darwin';
   const template = [
     ...(isMac ? [{ role: 'appMenu' }] : []),
-    { label: 'Edit',
+    {
+      label: 'Edit',
       submenu: [
         { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
         { role: 'cut' }, { role: 'copy' }, { role: 'paste' },
@@ -81,34 +82,83 @@ function startApi(port) {
 }
 
 async function createWindow() {
-  const getPort = await loadGetPort();                  // ← load ESM
+  const getPort = await loadGetPort();
+  // Try 5000; fall back to a free port if busy (antivirus, other instance, etc.)
   const apiPort = isDev ? 5000 : await getPort({ port: 5000 });
-  const url = `http://127.0.0.1:${apiPort}`;
+  const serverBase = `http://127.0.0.1:${apiPort}`;
 
   const win = new BrowserWindow({
     width: 1300, height: 850, minWidth: 1100, minHeight: 700,
     title: 'Lahore Auto Traders',
     icon: process.platform === 'win32' ? path.join(__dirname, '..', 'assets', 'icon.ico') : undefined,
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false
+    },
     show: false
   });
 
+  // Ensure the window becomes visible even if 'ready-to-show' is delayed
+  let showed = false;
+  win.once('ready-to-show', () => { showed = true; win.show(); });
+  setTimeout(() => { if (!showed) try { win.show(); } catch {} }, 4000);
+
   if (isDev) {
-    try { await waitForServer(url, { timeoutMs: 30000 }); } catch {}
+    try { await waitForServer(serverBase, { timeoutMs: 30000 }); } catch {}
   } else {
+    // Start local API
     startApi(apiPort);
-    try { await waitForServer(url, { timeoutMs: 45000 }); }
-    catch {
+
+    // Redirect hard-coded localhost:5000 (HTTP + WS) to the actual port we picked
+    const httpFrom = ['http://localhost:5000/', 'http://127.0.0.1:5000/'];
+    const wsFrom   = ['ws://localhost:5000/',   'ws://127.0.0.1:5000/'];
+    const toHttp   = `${serverBase}/`;
+    const toWs     = `ws://127.0.0.1:${apiPort}/`;
+
+    session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
+      const reqUrl = details.url;
+      let redirectURL = null;
+
+      for (const h of httpFrom) {
+        if (reqUrl.startsWith(h)) {
+          redirectURL = toHttp + reqUrl.slice(h.length);
+          break;
+        }
+      }
+      if (!redirectURL) {
+        for (const w of wsFrom) {
+          if (reqUrl.startsWith(w)) {
+            redirectURL = toWs + reqUrl.slice(w.length);
+            break;
+          }
+        }
+      }
+
+      if (redirectURL) {
+        // Normalize accidental double slashes (excluding scheme)
+        redirectURL = redirectURL
+          .replace(/^(https?:\/\/|ws:\/\/)/, '$1')
+          .replace(/([^:])\/\/+/g, '$1/');
+        return callback({ redirectURL });
+      }
+      callback({});
+    });
+
+    try { await waitForServer(serverBase, { timeoutMs: 45000 }); }
+    catch (e) {
       const msg = encodeURIComponent('The local server failed to start. Please check server.log in the app data folder and your antivirus/firewall.');
       await win.loadURL(`data:text/html;charset=utf-8,<h2>Startup Error</h2><p>${msg}</p>`);
       win.show();
       return;
     }
+
+    // Pop DevTools once in packaged builds to surface UI errors fast
+    try { win.webContents.openDevTools({ mode: 'detach' }); } catch {}
   }
 
-  await win.loadURL(url);
+  await win.loadURL(serverBase);
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
-  win.once('ready-to-show', () => win.show());
 }
 
 app.whenReady().then(async () => {
