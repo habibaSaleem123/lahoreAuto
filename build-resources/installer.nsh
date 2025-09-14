@@ -1,23 +1,38 @@
 # Windows installer script for Lahore Auto Traders
-# This handles additional setup for Windows installations
+!include "MUI2.nsh"
 
 # Check for and install Visual C++ Redistributable if needed
 Section "Visual C++ Redistributable" VCRedist
-  # Check if already installed
+  SetOutPath "$TEMP"
+
+  # Check multiple possible registry locations for VC++ Redistributable
   ReadRegStr $0 HKLM "SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\X64" "Version"
   StrCmp $0 "" 0 VCRedistInstalled
 
-  # Download and install VC++ Redistributable
-  MessageBox MB_YESNO "This application requires Microsoft Visual C++ Redistributable. Download and install it now?" IDYES InstallVCRedist
-  Goto VCRedistDone
+  ReadRegStr $0 HKLM "SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" "Version"
+  StrCmp $0 "" 0 VCRedistInstalled
 
-  InstallVCRedist:
-    inetc::get /CAPTION "Downloading Visual C++ Redistributable..." /CANCELTEXT "Skip" "https://aka.ms/vs/17/release/vc_redist.x64.exe" "$TEMP\vc_redist.x64.exe"
-    Pop $0
-    StrCmp $0 "OK" 0 VCRedistDone
-    ExecWait "$TEMP\vc_redist.x64.exe /quiet /norestart"
-    Delete "$TEMP\vc_redist.x64.exe"
-    Goto VCRedistDone
+  ReadRegStr $0 HKLM "SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" "Version"
+  StrCmp $0 "" 0 VCRedistInstalled
+
+  # Not found, need to install
+  DetailPrint "Visual C++ Redistributable not found, installing..."
+
+  # Include VC++ Redistributable in installer instead of downloading
+  File "${NSISDIR}\Plugins\vc_redist.x64.exe"
+  ExecWait '"$TEMP\vc_redist.x64.exe" /quiet /norestart /logs "$TEMP\vcredist.log"' $1
+
+  # Check exit code
+  ${If} $1 == 0
+    DetailPrint "Visual C++ Redistributable installed successfully"
+  ${ElseIf} $1 == 1638
+    DetailPrint "Visual C++ Redistributable already installed (newer version)"
+  ${Else}
+    DetailPrint "Visual C++ Redistributable installation returned code $1"
+  ${EndIf}
+
+  Delete "$TEMP\vc_redist.x64.exe"
+  Goto VCRedistDone
 
   VCRedistInstalled:
     DetailPrint "Visual C++ Redistributable already installed"

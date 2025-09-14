@@ -10,42 +10,47 @@
     "dev:server": "cross-env NODE_ENV=development npm --prefix server run dev",
     "dev:electron": "wait-on tcp:3000 tcp:5000 && electron .",
     "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:client\" \"npm:dev:electron\"",
-
     "build:react": "cross-env PUBLIC_URL=. npm --prefix client run build",
-
     "clean:all": "rimraf node_modules package-lock.json client/node_modules client/package-lock.json server/node_modules server/package-lock.json",
-
     "prep:root": "npm ci || npm install",
     "prep:client": "npm --prefix client ci || npm --prefix client install",
     "prep:server:electron": "cross-env npm_config_runtime=electron npm_config_target=31.3.0 npm_config_disturl=https://electronjs.org/headers npm --prefix server ci || npm --prefix server install",
-
     "rebuild:server:electron": "cross-env ELECTRON_REBUILD_USE_PREBUILD=1 electron-rebuild -f -w better-sqlite3 --module-dir ./server -v 31.3.0",
-
     "deps:electron": "npx --yes electron-builder install-app-deps",
-
     "prepack": "npm run prep:root && npm run prep:client && npm run prep:server:electron && npm run rebuild:server:electron && npm run build:react && npm run deps:electron",
     "predist": "npm run prep:root && npm run prep:client && npm run prep:server:electron && npm run rebuild:server:electron && npm run build:react && npm run deps:electron",
     "predist:win": "npm run prep:root && npm run prep:client && npm run prep:server:electron:win && npm run rebuild:server:electron:win && npm run build:react && npm run deps:electron",
-
     "prep:server:electron:win": "cross-env npm_config_runtime=electron npm_config_target=31.3.0 npm_config_disturl=https://electronjs.org/headers npm_config_cache=%USERPROFILE%\\.electron-gyp npm --prefix server ci || npm --prefix server install",
-    "rebuild:server:electron:win": "cross-env ELECTRON_REBUILD_USE_PREBUILD=1 electron-rebuild -f -w better-sqlite3 --module-dir ./server -v 31.3.0 --arch=x64 --platform=win32",
-
+    "rebuild:server:electron:win": "echo 'Warning: Cross-compilation of SQLite from macOS to Windows requires Docker or Windows machine' && npm --prefix server install better-sqlite3 --no-optional",
     "pack": "cross-env NODE_ENV=production electron-builder --dir",
     "dist": "cross-env NODE_ENV=production electron-builder --publish=never",
-    "dist:win": "cross-env NODE_ENV=production electron-builder --win --publish=never"
+    "dist:win": "cross-env NODE_ENV=production CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --win --publish=never",
+    "dist:win:full": "npm run predist:win && npm run dist:win",
+    "dist:win:docker": "docker run --rm -ti --env CSC_IDENTITY_AUTO_DISCOVERY=false --env ELECTRON_CACHE=\"/tmp/.cache/electron\" --env npm_config_runtime=electron --env npm_config_target=31.3.0 -v ${PWD}:/project -v ~/.cache/electron:/tmp/.cache/electron electronuserland/builder:wine /bin/bash -c \"cd /project && npm run prep:root && npm run prep:client && npm run prep:server:electron && npm run build:react && electron-builder --win --publish=never\""
   },
   "build": {
     "appId": "com.lahoreauto.traders",
     "productName": "Lahore Auto Traders",
+    "compression": "maximum",
+    "removePackageScripts": true,
     "files": [
       "electron/**/*",
       "assets/**/*",
       "package.json"
     ],
     "extraResources": [
-      { "from": "client/build", "to": "client/build" },
-      { "from": "server", "to": "server" },
-      { "from": "server/node_modules", "to": "server/node_modules" }
+      {
+        "from": "client/build",
+        "to": "client/build"
+      },
+      {
+        "from": "server",
+        "to": "server"
+      },
+      {
+        "from": "server/node_modules",
+        "to": "server/node_modules"
+      }
     ],
     "asar": true,
     "asarUnpack": [
@@ -59,21 +64,32 @@
     },
     "npmRebuild": true,
     "mac": {
-      "target": [ "dmg" ],
+      "target": [
+        "dmg"
+      ],
       "category": "public.app-category.business"
     },
     "win": {
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "assets/icon.ico",
       "requestedExecutionLevel": "asInvoker",
       "artifactName": "${productName}-${version}-Setup.${ext}",
-      "publisherName": "Lahore Auto Traders",
-      "verifyUpdateCodeSignature": false
+      "verifyUpdateCodeSignature": false,
+      "signAndEditExecutable": false,
+      "signExts": null,
+      "extraFiles": [
+        {
+          "from": "server/node_modules/better-sqlite3/build/Release/better_sqlite3.node",
+          "to": "server/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
@@ -84,8 +100,7 @@
       "installerHeaderIcon": "assets/icon.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Lahore Auto Traders",
-      "include": "build-resources/installer.nsh"
+      "shortcutName": "Lahore Auto Traders"
     },
     "extraMetadata": {
       "main": "electron/main.js"
@@ -101,6 +116,7 @@
     "wait-on": "^7.2.0"
   },
   "dependencies": {
+    "better-sqlite3": "^11.10.0",
     "get-port": "^7.1.0"
   }
 }

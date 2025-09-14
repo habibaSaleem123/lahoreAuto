@@ -57,7 +57,8 @@ export default function TaxReportPage() {
   };
 
   // Initial load
-  useEffect(() => { fetchData(); /* eslint-disable-next-line */ }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchData(); }, []);
 
   // Auto-refetch when filters change (debounced)
   useEffect(() => {
@@ -189,7 +190,7 @@ export default function TaxReportPage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [pageCount]);  
+  }, [pageCount, fetchData]);  
 
   const HeaderSummary = () => (
 <Card className="glass mb-3">

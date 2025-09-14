@@ -334,7 +334,86 @@ async function createWindow() {
     catch (e) {
       console.error(`[MAIN] Server startup failed: ${e.message}`);
       const logPath = path.join(app.getPath('userData'), 'server.log');
-      const errorHTML = `<!DOCTYPE html><html><head><title>Startup Error</title></head><body><h2>Startup Error</h2><p>The local server failed to start. Error: ${e.message}</p><p>Check the log file at: ${logPath}</p></body></html>`;
+
+      // Enhanced error diagnostics
+      let diagnostics = '';
+      let possibleFixes = '';
+
+      // Check for common Windows issues
+      const serverRoot = path.join(process.resourcesPath, 'server');
+      const nodeModulesPath = path.join(serverRoot, 'node_modules');
+      const sqliteBinaryPath = path.join(nodeModulesPath, 'better-sqlite3', 'build', 'Release', 'better_sqlite3.node');
+
+      if (!fs.existsSync(sqliteBinaryPath)) {
+        diagnostics += '❌ SQLite binary missing<br>';
+        possibleFixes += '• Install Visual C++ Redistributable<br>';
+      }
+
+      if (!fs.existsSync(nodeModulesPath)) {
+        diagnostics += '❌ Server dependencies missing<br>';
+        possibleFixes += '• Reinstall the application<br>';
+      }
+
+      // Check for port conflicts
+      if (e.message.includes('EADDRINUSE')) {
+        diagnostics += '❌ Port 5000 already in use<br>';
+        possibleFixes += '• Close other applications using port 5000<br>';
+        possibleFixes += '• Restart Windows to clear port locks<br>';
+      }
+
+      // Check for permission issues
+      if (e.message.includes('EACCES') || e.message.includes('permission')) {
+        diagnostics += '❌ Permission denied<br>';
+        possibleFixes += '• Run as Administrator<br>';
+        possibleFixes += '• Add Windows Defender exclusion<br>';
+      }
+
+      const errorHTML = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Server Startup Error</title>
+          <style>
+            body { font-family: Arial; margin: 20px; line-height: 1.6; }
+            .error { color: #d32f2f; background: #ffebee; padding: 15px; border-radius: 5px; }
+            .diagnostics { background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 15px 0; }
+            .fixes { background: #e8f5e8; padding: 15px; border-radius: 5px; margin: 15px 0; }
+            .log-path { background: #fff3e0; padding: 10px; border-radius: 5px; font-family: monospace; }
+            button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
+          </style>
+        </head>
+        <body>
+          <h2>🔧 Server Startup Failed</h2>
+          <div class="error">
+            <strong>Error:</strong> ${e.message}
+          </div>
+
+          ${diagnostics ? `<div class="diagnostics"><h3>🔍 Diagnostics:</h3>${diagnostics}</div>` : ''}
+
+          ${possibleFixes ? `<div class="fixes"><h3>💡 Possible Fixes:</h3>${possibleFixes}</div>` : ''}
+
+          <h3>📋 Quick Fixes to Try:</h3>
+          <ol>
+            <li><strong>Install Visual C++ Redistributable:</strong><br>
+                <a href="https://aka.ms/vs/17/release/vc_redist.x64.exe">Download vc_redist.x64.exe</a></li>
+            <li><strong>Add Windows Defender Exclusion:</strong><br>
+                Windows Security → Virus & threat protection → Add exclusion</li>
+            <li><strong>Run as Administrator:</strong><br>
+                Right-click app → "Run as administrator"</li>
+            <li><strong>Check Windows Firewall:</strong><br>
+                Allow "Lahore Auto Traders" through firewall</li>
+          </ol>
+
+          <div class="log-path">
+            <strong>Detailed logs:</strong> ${logPath}
+          </div>
+
+          <button onclick="location.reload()">🔄 Retry</button>
+          <button onclick="require('electron').shell.openPath('${logPath.replace(/\\/g, '\\\\')}')">📁 Open Log</button>
+        </body>
+        </html>
+      `;
+
       await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(errorHTML)}`);
       win.show();
       return;

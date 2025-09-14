@@ -65,7 +65,8 @@ export default function StockReportPage() {
     }
   };
 
-  useEffect(() => { fetchSummary(); /* eslint-disable-next-line */ }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { fetchSummary(); }, []);
 
   // --- client-side filtering (no backend change) ---
   const qtyOf = (r) => Number(r.current_qty || r.quantity_remaining || r.quantity || 0);
@@ -159,7 +160,7 @@ export default function StockReportPage() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [filtered, highlight]);
+  }, [filtered, highlight, fetchSummary]);
 
   // export CSV (client-only)
   const exportCsv = () => {

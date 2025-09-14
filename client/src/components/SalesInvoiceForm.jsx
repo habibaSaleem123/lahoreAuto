@@ -630,7 +630,7 @@ const SalesInvoiceForm = () => {
           </div>
 
           {!!filteredItems.length && selectedCustomer && (
-            <div className="quick-results" role="listbox" aria-label="Quick results" aria-activedescendant={`qr-opt-${clampIndex(highlightIndex, filteredItems)}`}>
+            <div className="quick-results" role="listbox" aria-label="Quick results" aria-activedescendant={`qr-opt-${clampIndex(highlightIndex, filteredItems)}`} tabIndex="0">
               {filteredItems.slice(0, 8).map((item, i) => {
                 const low = n(item.available_total) < LOW_STOCK_THRESHOLD;
                 const active = i === clampIndex(highlightIndex, filteredItems);
@@ -837,7 +837,7 @@ const SalesInvoiceForm = () => {
             />
           </div>
 
-          <div className="picker-list" role="listbox" aria-label="Customers" aria-activedescendant={`cust-opt-${clampIndex(highlightIndex, filteredCustomers)}`}>
+          <div className="picker-list" role="listbox" aria-label="Customers" aria-activedescendant={`cust-opt-${clampIndex(highlightIndex, filteredCustomers)}`} tabIndex="0">
             {filteredCustomers.map((c, i) => (
               <div id={`cust-opt-${i}`} key={c.id} className={`picker-row ${i === highlightIndex ? 'active' : ''}`} onMouseEnter={() => setHighlightIndex(i)} onClick={() => selectCustomer(c)} role="option" aria-selected={i === highlightIndex} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') selectCustomer(c); }}>
                 <div className="primary">{c.name}</div>
@@ -880,7 +880,7 @@ const SalesInvoiceForm = () => {
             />
           </div>
 
-          <div className="picker-list" role="listbox" aria-label="Products" aria-activedescendant={`item-opt-${clampIndex(highlightIndex, filteredItems)}`}>
+          <div className="picker-list" role="listbox" aria-label="Products" aria-activedescendant={`item-opt-${clampIndex(highlightIndex, filteredItems)}`} tabIndex="0">
             {filteredItems.map((it, i) => {
               const low = n(it.available_total) < LOW_STOCK_THRESHOLD;
               const active = i === highlightIndex;
@@ -910,7 +910,7 @@ const SalesInvoiceForm = () => {
           <button className="icon" onClick={() => { setShowGdPicker(false); setFocusSection('search'); }} aria-label="Close"><FaTimes aria-hidden /></button>
         </div>
         <div className="modal-body dark">
-          <div className="picker-list" role="listbox" aria-label="GD batches" aria-activedescendant={`gd-opt-${clampIndex(highlightIndex, gdOptions)}`}>
+          <div className="picker-list" role="listbox" aria-label="GD batches" aria-activedescendant={`gd-opt-${clampIndex(highlightIndex, gdOptions)}`} tabIndex="0">
             {gdOptions.map((g, i) => {
               const low = n(g.quantity_remaining) < LOW_STOCK_THRESHOLD;
               const active = i === highlightIndex;
