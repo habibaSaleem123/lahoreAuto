@@ -62,7 +62,7 @@ jobs:
       # Prepare app (targets Electron headers, rebuilds native, builds React, installs app-deps)
       - name: predist
         env:
-          CI: ""  # CRA: don’t treat warnings as errors
+          CI: ""  # CRA: don't treat warnings as errors
         run: |
           npm run predist 2>&1 | Tee-Object -FilePath build-log.txt -Append
 
