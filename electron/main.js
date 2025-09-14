@@ -1,9 +1,10 @@
 // electron/main.js
-const { app, BrowserWindow, shell, Menu, session } = require('electron');
+const { app, BrowserWindow, shell, Menu, session, ipcMain } = require('electron');
 const path = require('path');
 const { fork } = require('child_process');
 const http = require('http');
 const fs = require('fs');
+const crypto = require('crypto');
 
 // ESM import helper for get-port (v6/v7 are ESM-only)
 async function loadGetPort() {
@@ -13,6 +14,75 @@ async function loadGetPort() {
 
 const isDev = !app.isPackaged;
 let apiProc;
+
+// ── Secure credential storage functions ──
+const CREDENTIALS_FILE = path.join(app.getPath('userData'), 'user-credentials.enc');
+const ENCRYPTION_KEY = 'lahore-auto-traders-secret-key-2024'; // In production, use a proper key derivation
+
+function encrypt(text) {
+  const algorithm = 'aes-256-cbc';
+  const key = crypto.createHash('sha256').update(ENCRYPTION_KEY).digest();
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv(algorithm, key, iv);
+  let encrypted = cipher.update(text, 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return iv.toString('hex') + ':' + encrypted;
+}
+
+function decrypt(encryptedText) {
+  const algorithm = 'aes-256-cbc';
+  const key = crypto.createHash('sha256').update(ENCRYPTION_KEY).digest();
+  const parts = encryptedText.split(':');
+  const iv = Buffer.from(parts.shift(), 'hex');
+  const encryptedData = parts.join(':');
+  const decipher = crypto.createDecipheriv(algorithm, key, iv);
+  let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+async function saveCredentials(credentials) {
+  try {
+    const encrypted = encrypt(JSON.stringify(credentials));
+    await fs.promises.writeFile(CREDENTIALS_FILE, encrypted, 'utf8');
+    console.log('[MAIN] Credentials saved securely');
+    return { success: true };
+  } catch (error) {
+    console.error('[MAIN] Failed to save credentials:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+async function getCredentials() {
+  try {
+    if (!fs.existsSync(CREDENTIALS_FILE)) {
+      return { success: false, error: 'No saved credentials' };
+    }
+
+    const encryptedData = await fs.promises.readFile(CREDENTIALS_FILE, 'utf8');
+    const decrypted = decrypt(encryptedData);
+    const credentials = JSON.parse(decrypted);
+
+    console.log('[MAIN] Credentials retrieved');
+    return { success: true, credentials };
+  } catch (error) {
+    console.error('[MAIN] Failed to retrieve credentials:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+async function deleteCredentials() {
+  try {
+    if (fs.existsSync(CREDENTIALS_FILE)) {
+      await fs.promises.unlink(CREDENTIALS_FILE);
+      console.log('[MAIN] Credentials deleted');
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('[MAIN] Failed to delete credentials:', error);
+    return { success: false, error: error.message };
+  }
+}
 
 // ── single-instance lock
 const gotLock = app.requestSingleInstanceLock();
@@ -337,6 +407,24 @@ async function createWindow() {
 
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
 }
+
+// ── IPC handlers for credential storage ──
+ipcMain.handle('save-credentials', async (event, credentials) => {
+  return await saveCredentials(credentials);
+});
+
+ipcMain.handle('get-credentials', async (event) => {
+  return await getCredentials();
+});
+
+ipcMain.handle('delete-credentials', async (event) => {
+  return await deleteCredentials();
+});
+
+ipcMain.handle('check-auto-login', async (event) => {
+  const result = await getCredentials();
+  return result.success && result.credentials;
+});
 
 app.whenReady().then(async () => {
   if (process.platform === 'win32') app.setAppUserModelId('Lahore Auto Traders');

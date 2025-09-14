@@ -6,13 +6,51 @@ const Login = () => {
   const [cnic, setCnic] = useState('');
   const [mobile, setMobile] = useState('');
   const [error, setError] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
+  const [isAutoLoggingIn, setIsAutoLoggingIn] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     if (!window.customElements.get('model-viewer')) {
       import('@google/model-viewer').catch(() => {});
     }
+
+    // Check for auto-login if running in Electron
+    if (window.appInfo?.isDesktop && window.electronAPI) {
+      tryAutoLogin();
+    }
   }, []);
+
+  const tryAutoLogin = async () => {
+    try {
+      setIsAutoLoggingIn(true);
+      const result = await window.electronAPI.checkAutoLogin();
+
+      if (result && result.credentials) {
+        const { cnic: savedCnic, mobile: savedMobile } = result.credentials;
+
+        // Try to login with saved credentials
+        const res = await axios.post(
+          '/api/login',
+          { cnic: savedCnic, mobile: savedMobile },
+          { withCredentials: true }
+        );
+
+        sessionStorage.setItem('user', JSON.stringify(res.data.user));
+        console.log('[LOGIN] Auto-login successful');
+        navigate('/');
+        return;
+      }
+    } catch (err) {
+      console.log('[LOGIN] Auto-login failed:', err.message);
+      // If auto-login fails, just show the login form normally
+      if (window.electronAPI) {
+        await window.electronAPI.deleteCredentials();
+      }
+    } finally {
+      setIsAutoLoggingIn(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -23,7 +61,19 @@ const Login = () => {
         { cnic: cnic.trim(), mobile: mobile.trim() },
         { withCredentials: true }
       );
+
       sessionStorage.setItem('user', JSON.stringify(res.data.user));
+
+      // Save credentials if remember me is checked and we're in Electron
+      if (rememberMe && window.appInfo?.isDesktop && window.electronAPI) {
+        await window.electronAPI.saveCredentials({
+          cnic: cnic.trim(),
+          mobile: mobile.trim(),
+          savedAt: new Date().toISOString()
+        });
+        console.log('[LOGIN] Credentials saved for auto-login');
+      }
+
       navigate('/');
     } catch (err) {
       setError(err.response?.data?.error || 'Login failed');
@@ -106,6 +156,15 @@ const Login = () => {
             </div>
           )}
 
+          {isAutoLoggingIn && (
+            <div className="alert alert-info py-2 px-3 small d-flex align-items-center" role="status">
+              <div className="spinner-border spinner-border-sm me-2" role="status">
+                <span className="visually-hidden">Loading...</span>
+              </div>
+              Signing you in automatically...
+            </div>
+          )}
+
           <form onSubmit={handleSubmit}>
             <div className="mb-3">
               <label htmlFor="username" className="form-label text-light fw-semibold">
@@ -136,12 +195,39 @@ const Login = () => {
               />
             </div>
 
+            {/* Remember Me Checkbox - Only show in Electron */}
+            {window.appInfo?.isDesktop && (
+              <div className="mb-3">
+                <div className="form-check">
+                  <input
+                    className="form-check-input"
+                    type="checkbox"
+                    id="rememberMe"
+                    checked={rememberMe}
+                    onChange={(e) => setRememberMe(e.target.checked)}
+                  />
+                  <label className="form-check-label text-light small" htmlFor="rememberMe">
+                    Remember me and login automatically next time
+                  </label>
+                </div>
+              </div>
+            )}
+
             <button
               type="submit"
               className="btn btn-danger w-100 fw-semibold shadow-sm"
-              disabled={!cnic || !mobile}
+              disabled={!cnic || !mobile || isAutoLoggingIn}
             >
-              Sign In
+              {isAutoLoggingIn ? (
+                <>
+                  <div className="spinner-border spinner-border-sm me-2" role="status">
+                    <span className="visually-hidden">Loading...</span>
+                  </div>
+                  Signing In...
+                </>
+              ) : (
+                'Sign In'
+              )}
             </button>
           </form>
 

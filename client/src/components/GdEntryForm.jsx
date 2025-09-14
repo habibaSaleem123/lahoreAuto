@@ -41,7 +41,7 @@ export default function GdEntryForm() {
     if (!form) return;
 
     let inputs = Array.from(form.querySelectorAll('input, select, textarea'))
-      .filter(el => !el.disabled && el.offsetParent !== null);
+      .filter(el => !el.disabled && el.offsetParent !== null && el.type !== 'button');
 
     const handleKeyDown = (e) => {
       const index = inputs.indexOf(e.target);
@@ -50,17 +50,18 @@ export default function GdEntryForm() {
       // ENTER behavior
       if (e.key === 'Enter') {
         const isTextArea = e.target.tagName === 'TEXTAREA';
+        const isButton = e.target.tagName === 'BUTTON';
         const isLast = index === inputs.length - 1;
+
+        // If target is submit button, let it submit normally
+        if (isButton && e.target.type === 'submit') {
+          return; // Allow default submit behavior
+        }
 
         // Ctrl/Cmd + Enter → submit anywhere
         if (e.ctrlKey || e.metaKey) {
           e.preventDefault();
-          if (typeof form.requestSubmit === 'function') {
-            form.requestSubmit();
-          } else {
-            // Fallback for older browsers
-            form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-          }
+          handleSubmit(e);
           return;
         }
 
@@ -173,14 +174,50 @@ export default function GdEntryForm() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    // Validate required header fields
     const newErrors = {};
+    const requiredFields = ['gd_number', 'gd_date', 'supplier_name', 'invoice_value'];
+
     Object.entries(header).forEach(([key, value]) => {
-      if (!value.trim()) newErrors[key] = `${key.replace(/_/g, ' ')} is required`;
+      if (requiredFields.includes(key) && !value.trim()) {
+        newErrors[key] = `${key.replace(/_/g, ' ')} is required`;
+      }
     });
+
+    // Validate at least one item
+    const validItems = items.filter(item =>
+      item.description.trim() || item.hs_code.trim() || item.quantity
+    );
+
+    if (validItems.length === 0) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Validation Error',
+        text: 'Please add at least one item with description, HS code, or quantity.',
+        confirmButtonColor: '#ff4c4c'
+      });
+      return;
+    }
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
-      Swal.fire('Validation Error', 'Please fill all required GD Header fields.', 'warning');
+      const missingFields = Object.keys(newErrors).map(key =>
+        key.replace(/_/g, ' ')
+      ).join(', ');
+
+      Swal.fire({
+        icon: 'warning',
+        title: 'Missing Required Fields',
+        html: `Please fill the following required fields:<br><strong>${missingFields}</strong>`,
+        confirmButtonColor: '#ff4c4c'
+      });
+
+      // Focus on first error field
+      const firstErrorField = document.querySelector(`[name="${Object.keys(newErrors)[0]}"]`);
+      if (firstErrorField) {
+        firstErrorField.focus();
+        firstErrorField.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
       return;
     }
 
@@ -194,15 +231,34 @@ export default function GdEntryForm() {
       // Use relative path to work with dev proxy or prod server without CORS issues
       const res = await axios.post('/api/gd', {
         header,
-        items,
+        items: validItems,
         charges: validCharges
       });
       setLandedCost(res.data.landed_cost ?? null);
-      Swal.fire('Success!', 'GD Entry submitted successfully.', 'success');
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Success!',
+        text: 'GD Entry submitted successfully.',
+        confirmButtonColor: '#28a745'
+      });
     } catch (err) {
       console.error(err);
-      Swal.fire('Error!', 'Something went wrong.', 'error');
+      const errorMsg = err.response?.data?.error || err.message || 'Something went wrong.';
+
+      Swal.fire({
+        icon: 'error',
+        title: 'Submission Error',
+        text: errorMsg,
+        confirmButtonColor: '#ff4c4c'
+      });
     }
+  };
+
+  // Direct submit handler for button click
+  const handleButtonSubmit = (e) => {
+    e.preventDefault();
+    handleSubmit(e);
   };
 
   return (
@@ -257,26 +313,33 @@ export default function GdEntryForm() {
                   <Col md={6} key={colIndex}>
                     <Table bordered responsive hover className="dark-table mb-3">
                       <tbody>
-                        {slice.map(([key, value]) => (
-                          <tr key={key}>
-                            <th className="text-capitalize">{key.replace(/_/g, ' ')}</th>
-                            <td>
-                              <Form.Control
-                                className="input-dark"
-                                type={key === 'gd_date' ? 'date' : 'text'}
-                                name={key}
-                                value={value}
-                                onChange={handleHeaderChange}
-                                isInvalid={!!errors[key]}
-                                placeholder={key.replace(/_/g, ' ')}
-                                title={`Enter ${key.replace(/_/g, ' ')}`}
-                              />
-                              <Form.Control.Feedback type="invalid">
-                                {errors[key]}
-                              </Form.Control.Feedback>
-                            </td>
-                          </tr>
-                        ))}
+                        {slice.map(([key, value]) => {
+                          const isRequired = ['gd_number', 'gd_date', 'supplier_name', 'invoice_value'].includes(key);
+                          return (
+                            <tr key={key}>
+                              <th className="text-capitalize">
+                                {key.replace(/_/g, ' ')}
+                                {isRequired && <span className="text-danger ms-1">*</span>}
+                              </th>
+                              <td>
+                                <Form.Control
+                                  className="input-dark"
+                                  type={key === 'gd_date' ? 'date' : 'text'}
+                                  name={key}
+                                  value={value}
+                                  onChange={handleHeaderChange}
+                                  isInvalid={!!errors[key]}
+                                  placeholder={`${key.replace(/_/g, ' ')}${isRequired ? ' (required)' : ''}`}
+                                  title={`Enter ${key.replace(/_/g, ' ')}`}
+                                  required={isRequired}
+                                />
+                                <Form.Control.Feedback type="invalid">
+                                  {errors[key]}
+                                </Form.Control.Feedback>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </Table>
                   </Col>
@@ -372,7 +435,12 @@ export default function GdEntryForm() {
 
         {/* Submit */}
         <div className="d-grid">
-          <Button type="submit" className="btn-submit-neon" size="lg">
+          <Button
+            type="submit"
+            className="btn-submit-neon"
+            size="lg"
+            onClick={handleButtonSubmit}
+          >
             <FaCheckCircle className="me-2" /> Submit GD
           </Button>
         </div>

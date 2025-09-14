@@ -14,6 +14,17 @@ const Header = () => {
     } catch (err) {
       console.error('Logout error:', err);
     }
+
+    // Clear saved credentials if running in Electron
+    if (window.appInfo?.isDesktop && window.electronAPI) {
+      try {
+        await window.electronAPI.deleteCredentials();
+        console.log('[LOGOUT] Saved credentials cleared');
+      } catch (err) {
+        console.error('[LOGOUT] Failed to clear credentials:', err);
+      }
+    }
+
     sessionStorage.removeItem('user');
     navigate('/login');
   };
