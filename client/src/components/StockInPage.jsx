@@ -17,7 +17,7 @@ const StockInPage = () => {
   const fetchUnstocked = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await axios.get('http://localhost:5000/api/stock/unstocked-gds');
+      const res = await axios.get('/api/stock/unstocked-gds');
       setGds(res.data);
     } catch (err) {
       console.error('Error fetching unstocked GDs:', err);
@@ -29,7 +29,7 @@ const StockInPage = () => {
 
   const fetchGdItems = async (gdId) => {
     try {
-      const res = await axios.get(`http://localhost:5000/api/gd-details/${gdId}`);
+      const res = await axios.get(`/api/gd-details/${gdId}`);
       setSelectedGd(res.data.gd);
       setItems(res.data.items);
       setShowConfirm(true);
@@ -46,7 +46,7 @@ const StockInPage = () => {
       return;
     }
     try {
-      await axios.post(`http://localhost:5000/api/stock/stock-in/${selectedGd.id}`, {
+      await axios.post(`/api/stock/stock-in/${selectedGd.id}`, {
         stocked_by: stockedBy,
         stocked_at: new Date(stockedAt).toISOString(),
       });

@@ -4,7 +4,7 @@ import axios from 'axios';
 import { Container, Row, Col, Form, Button, Table, Badge, Accordion } from 'react-bootstrap';
 
 // === CONFIG: point to your API/Express origin (serves /api and /uploads) ===
-const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+const API_BASE = process.env.REACT_APP_API_BASE_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
 
 // Use a dedicated axios instance so all calls go to port 5000 in dev
 const api = axios.create({ baseURL: API_BASE });

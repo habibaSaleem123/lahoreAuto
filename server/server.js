@@ -52,7 +52,26 @@ try {
 if (!isProd) {
   app.use(
     cors({
-      origin: 'http://localhost:3000',
+      origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
+      credentials: true,
+    })
+  );
+} else {
+  // In production (Electron), allow requests from same-origin
+  app.use(
+    cors({
+      origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+
+        // Allow localhost and 127.0.0.1 on any port (for Electron)
+        if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+          return callback(null, true);
+        }
+
+        // Allow same-origin requests
+        callback(null, true);
+      },
       credentials: true,
     })
   );
@@ -179,14 +198,63 @@ const buildPath = isProd
   ? path.resolve(process.resourcesPath, 'client', 'build')  // from extraResources
   : path.resolve(__dirname, '..', 'client', 'build');
 
-if (fs.existsSync(buildPath)) {
+const indexPath = path.join(buildPath, 'index.html');
+
+if (fs.existsSync(buildPath) && fs.existsSync(indexPath)) {
+  console.log('🖼️ Serving React build from:', buildPath);
   app.use(express.static(buildPath));
+
   // Any GET that is not /api/* or /uploads/* returns index.html
   app.get(/^\/(?!api|uploads)(.*)$/, (req, res) => {
-    res.sendFile(path.join(buildPath, 'index.html'));
+    try {
+      res.sendFile(indexPath);
+    } catch (e) {
+      console.error('Failed to serve index.html:', e);
+      res.status(500).send(`
+        <h2>Application Error</h2>
+        <p>Failed to load the application. Please check if the React build exists.</p>
+        <p>Build path: ${buildPath}</p>
+        <p>Error: ${e.message}</p>
+      `);
+    }
   });
 } else {
-  console.log('ℹ️ No React build found at', buildPath);
+  console.warn('❌ No React build found at', buildPath);
+  console.warn('   Index file check:', fs.existsSync(indexPath) ? 'EXISTS' : 'MISSING');
+
+  // Fallback for missing build
+  app.get(/^\/(?!api|uploads)(.*)$/, (req, res) => {
+    res.status(503).send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Lahore Auto Traders - Build Missing</title>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 50px; }
+          .error { color: #d32f2f; }
+          .info { color: #1976d2; }
+          pre { background: #f5f5f5; padding: 15px; border-radius: 5px; }
+        </style>
+      </head>
+      <body>
+        <h1 class="error">Application Not Built</h1>
+        <p>The React application has not been built yet.</p>
+        <h3>To fix this:</h3>
+        <ol>
+          <li>Run <code class="info">npm run build:react</code> in the project root</li>
+          <li>Restart the application</li>
+        </ol>
+        <h3>Build Information:</h3>
+        <pre>Expected build path: ${buildPath}
+Index file path: ${indexPath}
+Build directory exists: ${fs.existsSync(buildPath)}
+Index file exists: ${fs.existsSync(indexPath)}
+Node environment: ${process.env.NODE_ENV}
+Working directory: ${process.cwd()}</pre>
+      </body>
+      </html>
+    `);
+  });
 }
 
 // 404 for API only

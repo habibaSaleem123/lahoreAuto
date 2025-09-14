@@ -15,7 +15,7 @@ const GdDetailsPage = () => {
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    axios.get(`http://localhost:5000/api/gd-details/${id}`)
+    axios.get(`/api/gd-details/${id}`)
       .then(res => {
         setGd(res.data.gd);
         setItems(res.data.items);
@@ -69,7 +69,7 @@ const GdDetailsPage = () => {
     try {
       setSavingIndexes(prev => ({ ...prev, [index]: true }));
       const updatedItem = items[index];
-      await axios.put(`http://localhost:5000/api/gd-items/${id}`, { items: [updatedItem] });
+      await axios.put(`/api/gd-items/${id}`, { items: [updatedItem] });
       alert(`Item ${index + 1} updated successfully!`);
     } catch (error) {
       alert(`Failed to update item ${index + 1}`);

@@ -19,8 +19,8 @@ const StockSummaryPage = () => {
   useEffect(() => {
     const endpoint =
       viewMode === 'batch'
-        ? 'http://localhost:5000/api/stock/summary'
-        : 'http://localhost:5000/api/stock/summary-with-audit';
+        ? '/api/stock/summary'
+        : '/api/stock/summary-with-audit';
 
     setLoading(true);
     axios

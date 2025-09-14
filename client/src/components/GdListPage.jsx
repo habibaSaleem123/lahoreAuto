@@ -39,7 +39,7 @@ const GdListPage = () => {
   const fetchData = async () => {
     try {
       const params = new URLSearchParams(filters);
-      const res = await axios.get(`http://localhost:5000/api/gd-list?${params.toString()}`);
+      const res = await axios.get(`/api/gd-list?${params.toString()}`);
       setGds(res.data);
     } catch (error) {
       console.error('Error fetching GD list:', error);
@@ -54,7 +54,7 @@ const GdListPage = () => {
 
   const openGdModal = async (gdId) => {
     try {
-      const res = await axios.get(`http://localhost:5000/api/gd-details/${gdId}`);
+      const res = await axios.get(`/api/gd-details/${gdId}`);
       setGdDetails(res.data);
       setSelectedGdId(gdId);
       setShowModal(true);
@@ -104,7 +104,7 @@ const GdListPage = () => {
       setSavingIndexes(prev => ({ ...prev, [index]: true }));
       const updatedItem = gdDetails.items[index];
       const payload = { items: [updatedItem], taxRate }; // send taxRate for server-side consistency
-      await axios.put(`http://localhost:5000/api/gd-items/${selectedGdId}`, payload);
+      await axios.put(`/api/gd-items/${selectedGdId}`, payload);
 
       // Refresh details after save
       await openGdModal(selectedGdId);

@@ -5,7 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 // 🔧 Add API base + helper to build absolute URLs for receipts
-const API_BASE = process.env.REACT_APP_API_BASE_URL || 'http://localhost:5000';
+const API_BASE = process.env.REACT_APP_API_BASE_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000');
 const asAbs = (p) => {
   if (!p) return '';
   if (/^https?:\/\//i.test(p)) return p;                    // already absolute

@@ -19,7 +19,7 @@ const Login = () => {
     setError('');
     try {
       const res = await axios.post(
-        'http://localhost:5000/api/login',
+        '/api/login',
         { cnic: cnic.trim(), mobile: mobile.trim() },
         { withCredentials: true }
       );
