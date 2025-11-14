@@ -40,8 +40,8 @@ export default function GdEntryForm() {
     const form = formRef.current;
     if (!form) return;
 
-    let inputs = Array.from(form.querySelectorAll('input, select, textarea'))
-      .filter(el => !el.disabled && el.offsetParent !== null && el.type !== 'button');
+    let inputs = Array.from(form.querySelectorAll('input, select, textarea, button[type="submit"]'))
+      .filter(el => !el.disabled && el.offsetParent !== null);
 
     const handleKeyDown = (e) => {
       const index = inputs.indexOf(e.target);
@@ -51,25 +51,17 @@ export default function GdEntryForm() {
       if (e.key === 'Enter') {
         const isTextArea = e.target.tagName === 'TEXTAREA';
         const isButton = e.target.tagName === 'BUTTON';
-        const isLast = index === inputs.length - 1;
 
         // If target is submit button, let it submit normally
         if (isButton && e.target.type === 'submit') {
           return; // Allow default submit behavior
         }
 
-        // Ctrl/Cmd + Enter → submit anywhere
-        if (e.ctrlKey || e.metaKey) {
-          e.preventDefault();
-          handleSubmit(e);
-          return;
-        }
-
         // Shift+Enter or Enter inside textarea → allow newline (no preventDefault)
         if (e.shiftKey || isTextArea) return;
 
         // Not last field → move focus to next and DO NOT submit
-        if (!isLast) {
+        if (index < inputs.length - 1) {
           e.preventDefault();
           inputs[index + 1].focus();
           return;
@@ -93,7 +85,6 @@ export default function GdEntryForm() {
     };
 
     inputs.forEach(input => input.addEventListener('keydown', handleKeyDown));
-    if (inputs.length) inputs[0].focus();
 
     return () => {
       inputs.forEach(input => input.removeEventListener('keydown', handleKeyDown));
@@ -253,12 +244,6 @@ export default function GdEntryForm() {
         confirmButtonColor: '#ff4c4c'
       });
     }
-  };
-
-  // Direct submit handler for button click
-  const handleButtonSubmit = (e) => {
-    e.preventDefault();
-    handleSubmit(e);
   };
 
   return (
@@ -439,7 +424,6 @@ export default function GdEntryForm() {
             type="submit"
             className="btn-submit-neon"
             size="lg"
-            onClick={handleButtonSubmit}
           >
             <FaCheckCircle className="me-2" /> Submit GD
           </Button>

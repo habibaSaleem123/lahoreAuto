@@ -419,8 +419,10 @@ async function createWindow() {
       return;
     }
 
-    // Pop DevTools once in packaged builds to surface UI errors fast
-    try { win.webContents.openDevTools({ mode: 'detach' }); } catch {}
+    // Only open DevTools in development mode, not in production
+    if (isDev) {
+      try { win.webContents.openDevTools({ mode: 'detach' }); } catch {}
+    }
   }
 
   // Load the server URL with timeout and error handling

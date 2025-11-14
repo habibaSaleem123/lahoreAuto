@@ -86,7 +86,7 @@ exports.createInvoice = (req, res) => {
       const stDeleteInv = db.prepare(`DELETE FROM inventory WHERE id = @id`);
       const stLog = db.prepare(`
         INSERT INTO inventory_log
-          (item_id, gd_entry_id, action, quantity_changed, resulting_quantity, action_by, created_at)
+          (item_id, gd_entry_id, action, quantity_changed, resulting_quantity, action_by, action_at)
         VALUES
           (@item_id, @gd_entry_id, 'sale', @delta, @resulting_quantity, @actor, datetime('now'))
       `);
@@ -199,7 +199,7 @@ exports.createInvoice = (req, res) => {
       const stRemain = db.prepare(`SELECT COUNT(*) AS remaining FROM inventory WHERE gd_entry_id = @gd`);
       const stDeleteGd = db.prepare(`DELETE FROM gd_entries WHERE id = @gd`);
       const stLogDel = db.prepare(`
-        INSERT INTO gd_deletion_log (gd_entry_id, deleted_by, created_at)
+        INSERT INTO gd_deletion_log (gd_entry_id, deleted_by, deleted_at)
         VALUES (@gd, @by, datetime('now'))
       `);
 
@@ -528,7 +528,7 @@ exports.createReturn = (req, res) => {
       `);
       const stLogInv = db.prepare(`
         INSERT INTO inventory_log
-          (item_id, gd_entry_id, action, quantity_changed, resulting_quantity, action_by, created_at)
+          (item_id, gd_entry_id, action, quantity_changed, resulting_quantity, action_by, action_at)
         VALUES
           (@item, @gd, @action, @delta, @resulting, @by, datetime('now'))
       `);
